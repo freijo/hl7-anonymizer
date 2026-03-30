@@ -1,0 +1,808 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HL7 Anonymizer – UI Wireframe Specification</title>
+<style>
+/* ============================================================
+   DESIGN SYSTEM — derived from HL7_ADT_Doku project
+   ============================================================ */
+:root, [data-theme="light"] {
+  /* Base colors (from HL7_ADT_Doku) */
+  --accent: #0066A1;
+  --accent-hover: #004d7a;
+  --accent-light: #e8f2fa;
+  --text: #2d3748;
+  --text-muted: #718096;
+  --bg: #f7f8fc;
+  --surface: #ffffff;
+  --panel: #edf0f5;
+  --border: #d2d8e2;
+  --gray-dark: #4a5568;
+  --shadow: rgba(0,0,0,0.08);
+  --shadow2: rgba(0,0,0,0.04);
+  --td-border: #e8ecf1;
+
+  /* Field selection states (NEW for Anonymizer) */
+  --sel-auto-bg: #fef9e7;
+  --sel-auto-border: #e6c84d;
+  --sel-auto-text: #92600a;
+  --sel-manual-bg: #fee2e2;
+  --sel-manual-border: #f87171;
+  --sel-manual-text: #991b1b;
+  --sel-llm-bg: #f5f0fc;
+  --sel-llm-border: #c4b5e0;
+  --sel-llm-text: #553c8b;
+  --sel-neutral-bg: #ffffff;
+  --sel-neutral-border: #e8ecf1;
+
+  /* Warning / success (NEW for Anonymizer) */
+  --warn-bg: #fff1f0;
+  --warn-border: #e53e3e;
+  --warn-text: #c53030;
+  --success-bg: #c6f6d5;
+  --success-border: #38a169;
+  --success-text: #276749;
+
+  /* Action button (Anonymize) */
+  --action-bg: #38a169;
+  --action-hover: #2f855a;
+}
+
+[data-theme="dark"] {
+  --accent: #4da6d9;
+  --accent-hover: #6dbde6;
+  --accent-light: #1a2d3d;
+  --text: #e2e8f0;
+  --text-muted: #a0aec0;
+  --bg: #0f1117;
+  --surface: #171923;
+  --panel: #1e2130;
+  --border: #2d3748;
+  --gray-dark: #2d3748;
+  --shadow: rgba(0,0,0,0.3);
+  --shadow2: rgba(0,0,0,0.15);
+  --td-border: #2d3748;
+
+  --sel-auto-bg: #2d2a1a;
+  --sel-auto-border: #665522;
+  --sel-auto-text: #e6c84d;
+  --sel-manual-bg: #2d1a1a;
+  --sel-manual-border: #7f2222;
+  --sel-manual-text: #f87171;
+  --sel-llm-bg: #221a35;
+  --sel-llm-border: #3a2a55;
+  --sel-llm-text: #c4b5e0;
+  --sel-neutral-bg: #171923;
+  --sel-neutral-border: #2d3748;
+
+  --warn-bg: #2d1a1a;
+  --warn-border: #7f2222;
+  --warn-text: #f87171;
+  --success-bg: #1a2d1a;
+  --success-border: #276749;
+  --success-text: #68d391;
+
+  --action-bg: #276749;
+  --action-hover: #22543d;
+}
+
+/* ============================================================
+   RESET & BASE
+   ============================================================ */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: var(--bg); color: var(--text); font-size: 13px;
+  transition: background 0.25s, color 0.25s;
+}
+
+/* ============================================================
+   HEADER (consistent with HL7_ADT_Doku)
+   ============================================================ */
+.header {
+  background: var(--surface); padding: 14px 28px;
+  display: flex; align-items: center; justify-content: space-between;
+  border-bottom: 3px solid var(--accent); box-shadow: 0 1px 4px var(--shadow);
+}
+.header-left { display: flex; align-items: center; gap: 16px; }
+.header h1 { font-size: 17px; font-weight: 600; }
+.header .subtitle { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }
+.header-right { display: flex; align-items: center; gap: 10px; }
+.version-badge {
+  background: var(--accent); color: white; padding: 4px 14px;
+  border-radius: 4px; font-size: 11px; font-weight: 700; letter-spacing: 0.3px;
+}
+.theme-toggle {
+  background: var(--gray-dark); color: #fff; border: none; padding: 6px 10px;
+  border-radius: 4px; cursor: pointer; font-size: 15px; line-height: 1; transition: background 0.2s;
+}
+.theme-toggle:hover { opacity: 0.85; }
+
+/* ============================================================
+   STEP NAVIGATION
+   ============================================================ */
+.steps {
+  display: flex; gap: 0; background: var(--surface);
+  border-bottom: 1px solid var(--border); padding: 0 28px;
+}
+.step-btn {
+  background: none; border: none; padding: 11px 20px; font-size: 13px; cursor: pointer;
+  color: var(--text-muted); border-bottom: 3px solid transparent;
+  transition: all 0.2s; font-weight: 500; display: flex; align-items: center; gap: 8px;
+}
+.step-btn:hover { color: var(--text); background: var(--panel); }
+.step-btn.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 700; }
+.step-num {
+  display: inline-flex; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--border); color: var(--text-muted);
+  font-size: 11px; font-weight: 700; align-items: center; justify-content: center;
+}
+.step-btn.active .step-num { background: var(--accent); color: #fff; }
+.step-btn.done .step-num { background: var(--action-bg); color: #fff; }
+
+/* ============================================================
+   CONTENT & PANELS
+   ============================================================ */
+.content { padding: 16px 28px; }
+.panel { display: none; }
+.panel.active { display: block; }
+
+/* ============================================================
+   BUTTONS (consistent with HL7_ADT_Doku)
+   ============================================================ */
+.btn {
+  padding: 8px 16px; border: none; border-radius: 4px; font-size: 12px;
+  cursor: pointer; font-weight: 600; transition: all 0.15s;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.btn-accent { background: var(--accent); color: white; }
+.btn-accent:hover { background: var(--accent-hover); }
+.btn-action { background: var(--action-bg); color: white; }
+.btn-action:hover { background: var(--action-hover); }
+.btn-outline { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+.btn-outline:hover { background: var(--panel); }
+.btn-llm { background: var(--sel-llm-bg); color: var(--sel-llm-text); border: 1px solid var(--sel-llm-border); }
+.btn-llm:hover { filter: brightness(0.95); }
+.btn-sm { padding: 5px 10px; font-size: 11px; }
+.btn-lg { padding: 11px 28px; font-size: 14px; }
+
+/* ============================================================
+   STEP 1: INPUT
+   ============================================================ */
+.input-area { display: flex; flex-direction: column; gap: 12px; }
+.input-area textarea {
+  width: 100%; min-height: 220px; padding: 12px;
+  border: 1px solid var(--border); border-radius: 6px;
+  font-family: 'Cascadia Code', 'Consolas', 'Courier New', monospace;
+  font-size: 12px; line-height: 1.6;
+  background: var(--surface); color: var(--text); resize: vertical;
+}
+.input-area textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0,102,161,0.12); }
+
+.warn-banner {
+  display: none; background: var(--warn-bg); border: 1px solid var(--warn-border);
+  border-radius: 6px; padding: 10px 14px; font-size: 12px; color: var(--warn-text);
+  align-items: center; gap: 8px;
+}
+.warn-banner.show { display: flex; }
+
+.status-bar {
+  display: flex; gap: 12px; align-items: center; font-size: 12px;
+  color: var(--text-muted); flex-wrap: wrap;
+}
+.badge {
+  padding: 4px 12px; border-radius: 4px; font-weight: 600; font-size: 11px;
+}
+.badge-info { background: var(--accent-light); color: var(--accent); }
+.badge-warn { background: var(--warn-bg); color: var(--warn-text); border: 1px solid var(--warn-border); }
+.badge-success { background: var(--success-bg); color: var(--success-text); }
+
+/* ============================================================
+   STEP 2: FIELD SELECTION (core screen)
+   ============================================================ */
+.sel-layout { display: grid; grid-template-columns: 1fr 280px; gap: 16px; min-height: 500px; }
+.sel-main { display: flex; flex-direction: column; gap: 10px; overflow: hidden; }
+.sel-sidebar { display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
+
+/* Toolbar */
+.sel-toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.sel-toolbar input {
+  flex: 1; min-width: 180px; padding: 8px 12px;
+  border: 1px solid var(--border); border-radius: 4px; font-size: 12px;
+  background: var(--surface); color: var(--text);
+}
+.sel-toolbar input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(0,102,161,0.12); }
+
+/* Message tabs */
+.msg-tabs {
+  display: flex; gap: 0; background: var(--panel);
+  border: 1px solid var(--border); border-radius: 6px 6px 0 0; overflow-x: auto;
+}
+.msg-tab {
+  padding: 8px 16px; font-size: 11px; cursor: pointer;
+  border-right: 1px solid var(--border); background: var(--panel);
+  color: var(--text-muted); white-space: nowrap; transition: all 0.15s;
+}
+.msg-tab:hover { background: var(--surface); }
+.msg-tab.active {
+  background: var(--surface); color: var(--accent);
+  font-weight: 700; border-bottom: 2px solid var(--accent);
+}
+.msg-tab .cnt {
+  background: var(--accent); color: #fff; border-radius: 8px;
+  padding: 1px 6px; font-size: 9px; margin-left: 4px;
+}
+
+/* HL7 inline view */
+.hl7-view {
+  flex: 1; overflow-y: auto; background: var(--surface);
+  border: 1px solid var(--border); border-top: none;
+  border-radius: 0 0 6px 6px; padding: 14px;
+  font-family: 'Cascadia Code', 'Consolas', 'Courier New', monospace;
+  font-size: 12px; line-height: 2.0;
+}
+.seg-line { margin-bottom: 2px; }
+.seg-name { color: var(--accent); font-weight: 700; cursor: default; }
+
+/* Clickable field tokens */
+.field {
+  display: inline; padding: 2px 4px; border-radius: 3px;
+  cursor: pointer; border: 1px solid transparent;
+  transition: all 0.12s; position: relative;
+}
+.field:hover { filter: brightness(0.92); outline: 2px solid var(--accent); outline-offset: 1px; z-index: 2; }
+.field.auto { background: var(--sel-auto-bg); border-color: var(--sel-auto-border); color: var(--sel-auto-text); }
+.field.manual { background: var(--sel-manual-bg); border-color: var(--sel-manual-border); color: var(--sel-manual-text); }
+.field.llm { background: var(--sel-llm-bg); border-color: var(--sel-llm-border); color: var(--sel-llm-text); }
+.field.neutral { background: var(--sel-neutral-bg); border-color: var(--sel-neutral-border); }
+.pipe { color: #aaa; margin: 0 1px; user-select: none; }
+
+/* Tooltip on hover */
+.field-tip {
+  display: none; position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+  background: var(--gray-dark); color: #fff; padding: 4px 10px; border-radius: 4px;
+  font-size: 11px; font-family: 'Segoe UI', sans-serif; white-space: nowrap;
+  z-index: 100; pointer-events: none; box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+.field-tip::after {
+  content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+  border: 5px solid transparent; border-top-color: var(--gray-dark);
+}
+.field:hover .field-tip { display: block; }
+
+/* Non-HL7 warning line */
+.warn-line {
+  background: var(--warn-bg); border: 1px solid var(--warn-border);
+  border-radius: 4px; padding: 4px 10px; margin: 4px 0;
+  color: var(--warn-text); font-size: 11px; font-family: 'Segoe UI', sans-serif;
+}
+.warn-line code { background: rgba(229,62,62,0.1); padding: 1px 4px; border-radius: 2px; }
+
+/* Sidebar cards */
+.sidebar-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 6px; overflow: hidden; box-shadow: 0 1px 2px var(--shadow2);
+}
+.sidebar-card-hdr {
+  background: var(--gray-dark); color: #fff; padding: 8px 12px;
+  font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px;
+}
+.sidebar-card-body { padding: 10px 12px; }
+
+.sel-counter { text-align: center; padding: 10px; }
+.sel-counter .num { font-size: 28px; font-weight: 700; color: var(--accent); }
+.sel-counter .label { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+
+.seg-btns { display: flex; flex-wrap: wrap; gap: 4px; }
+.seg-btn {
+  padding: 4px 10px; border: 1px solid var(--border); border-radius: 4px;
+  font-size: 10px; font-weight: 600; cursor: pointer; background: var(--surface);
+  color: var(--text-muted); transition: all 0.15s;
+}
+.seg-btn:hover { border-color: var(--accent); color: var(--accent); }
+.seg-btn.active { background: var(--accent-light); border-color: var(--accent); color: var(--accent); }
+
+.sel-list { max-height: 180px; overflow-y: auto; }
+.sel-item {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 5px 6px; font-size: 11px; border-bottom: 1px solid var(--panel); gap: 6px;
+}
+.sel-item:hover { background: var(--panel); }
+.sel-item .path { color: var(--text-muted); font-family: monospace; font-size: 10px; min-width: 48px; }
+.sel-item .val { font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sel-item .swatch { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+.sel-item .desel { color: var(--warn-text); cursor: pointer; font-size: 10px; opacity: 0.4; flex-shrink: 0; }
+.sel-item .desel:hover { opacity: 1; }
+
+/* Legend */
+.legend-bar { display: flex; gap: 14px; font-size: 11px; flex-wrap: wrap; align-items: center; padding: 6px 0; }
+.legend-item { display: flex; align-items: center; gap: 5px; }
+.legend-swatch { width: 14px; height: 10px; border-radius: 2px; }
+
+/* Apply bar (bottom of step 2) */
+.apply-bar {
+  display: flex; justify-content: space-between; align-items: center;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 6px; padding: 12px 16px; margin-top: 12px;
+}
+
+/* Context menu */
+.ctx-menu {
+  display: none; position: absolute; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 6px; box-shadow: 0 4px 16px var(--shadow); z-index: 200;
+  min-width: 220px; padding: 4px 0; font-family: 'Segoe UI', sans-serif;
+}
+.ctx-menu.show { display: block; }
+.ctx-item {
+  padding: 8px 14px; font-size: 12px; cursor: pointer; color: var(--text);
+  display: flex; align-items: center; gap: 8px;
+}
+.ctx-item:hover { background: var(--panel); }
+.ctx-item .shortcut { margin-left: auto; font-size: 10px; color: var(--text-muted); }
+.ctx-sep { height: 1px; background: var(--border); margin: 4px 0; }
+
+/* ============================================================
+   STEP 3: SETTINGS
+   ============================================================ */
+.settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; max-width: 720px; }
+.setting-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 6px; padding: 16px;
+}
+.setting-card label { font-size: 12px; font-weight: 600; display: block; margin-bottom: 8px; }
+.setting-card input[type="text"],
+.setting-card select {
+  width: 100%; padding: 8px 10px; border: 1px solid var(--border);
+  border-radius: 4px; font-size: 13px; background: var(--surface); color: var(--text);
+}
+.setting-card input[type="text"]:focus,
+.setting-card select:focus {
+  outline: none; border-color: var(--accent);
+}
+.setting-card .hint { font-size: 11px; color: var(--text-muted); margin-top: 6px; }
+.chk-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12px; }
+.chk-row input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); }
+
+/* ============================================================
+   STEP 4: OUTPUT
+   ============================================================ */
+.output-area { display: flex; flex-direction: column; gap: 12px; }
+.output-area textarea {
+  width: 100%; min-height: 280px; padding: 12px;
+  border: 1px solid var(--border); border-radius: 6px;
+  font-family: 'Cascadia Code', 'Consolas', 'Courier New', monospace;
+  font-size: 12px; line-height: 1.6;
+  background: var(--panel); color: var(--text); resize: vertical;
+}
+.output-toolbar { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* ============================================================
+   SPEC ANNOTATIONS (wireframe-only, not in production)
+   ============================================================ */
+.spec-note {
+  background: var(--accent-light); border: 1px dashed var(--accent);
+  border-radius: 6px; padding: 10px 14px; font-size: 11px; color: var(--accent);
+  margin-bottom: 12px; line-height: 1.6;
+}
+.spec-note strong { color: var(--accent-hover); }
+.spec-ref {
+  display: inline-block; background: var(--accent); color: #fff;
+  padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 700;
+  margin: 0 2px; font-family: monospace;
+}
+</style>
+</head>
+<body>
+
+<!-- ================================================================
+     HEADER
+     Ref: Requirements Section 2.1 (base colors)
+     ================================================================ -->
+<div class="header">
+  <div class="header-left">
+    <div>
+      <h1>HL7 Anonymizer</h1>
+      <div class="subtitle">Anonymize patient &amp; person-related data in HL7 v2.x messages</div>
+    </div>
+  </div>
+  <div class="header-right">
+    <span class="version-badge">v1.0</span>
+    <button class="theme-toggle" onclick="toggleTheme()" title="Toggle dark/light mode">&#9681;</button>
+  </div>
+</div>
+
+<!-- ================================================================
+     STEP NAVIGATION
+     4-step workflow: Input → Select Fields → Settings → Output
+     ================================================================ -->
+<div class="steps">
+  <button class="step-btn active" onclick="goStep(0,this)">
+    <span class="step-num">1</span> Input
+  </button>
+  <button class="step-btn" onclick="goStep(1,this)">
+    <span class="step-num">2</span> Select Fields
+  </button>
+  <button class="step-btn" onclick="goStep(2,this)">
+    <span class="step-num">3</span> Settings
+  </button>
+  <button class="step-btn" onclick="goStep(3,this)">
+    <span class="step-num">4</span> Output
+  </button>
+</div>
+
+<div class="content">
+
+<!-- ================================================================
+     STEP 1: INPUT
+     Refs: F-IN-01 to F-IN-08
+     ================================================================ -->
+<div class="panel active" id="p0">
+  <div class="spec-note">
+    <strong>WIREFRAME — Step 1: Input</strong><br>
+    <span class="spec-ref">F-IN-01</span> Paste area for HL7 messages &nbsp;
+    <span class="spec-ref">F-IN-02</span> Auto-detect message boundaries (CR/LF) &nbsp;
+    <span class="spec-ref">F-IN-03</span> Warn on non-HL7 content (shown in warn-banner below) &nbsp;
+    <span class="spec-ref">F-IN-04</span> Info text about ignored content &nbsp;
+    <span class="spec-ref">F-IN-05</span> Message count in status bar &nbsp;
+    <span class="spec-ref">F-IN-06</span> Validate MSH presence &nbsp;
+    <span class="spec-ref">F-IN-07</span> Read encoding chars from MSH &nbsp;
+    <span class="spec-ref">F-IN-08</span> Warn on oversized input
+  </div>
+
+  <div class="input-area">
+    <textarea id="inputArea" placeholder="Paste HL7 messages here..." spellcheck="false">MSH|^~\&|SAP|KBS|800|0100|20240115120000||ADT^A01^ADT_A07|000012345|P|2.5^^^2.16||NP11I0|AL|CHE|8859/1
+EVN|A01|20240115120000
+PID|1||123456^7^M10^KBS^800||Müller^Hans^Peter^^Dr.||19850315|M||||||+41612654321^^hans.mueller@email.ch^+41612654322^+41791234567|||M|||756.1234.5678.90||||||Basel||CHE
+PD1||||||||||||||HFGY~HFGN~EPDY
+NK1|1|Müller^Anna||||+41612654999|||||||||||||||||||||||||EMCON
+PV1|1|I|CHIR^201^A^MED1||E||12345^Schneider^Thomas|||||||||||V|98765^1^M10|||KV||||||||||||||||20240115120000
+GT1|1|||||||||||||||USB^AG-Basel^^^^12345||Hauptstr. 1^^Basel^^4001^CH||+41612659000~+41612659001
+---separator---
+MSH|^~\&|SAP|KBS|800|0100|20240115130000||ADT^A08^ADT_A07|000012346|P|2.5^^^2.16||NP0200|AL|CHE|8859/1
+PID|1||123456^7^M10^KBS^800||Müller^Hans^Peter^^Dr.||19850315|M||||||+41612654321^^hans.mueller@email.ch|||M|||756.1234.5678.90||||||Basel||CHE</textarea>
+
+    <!-- F-IN-03: Non-HL7 content warning -->
+    <div class="warn-banner show">
+      <span style="font-size:16px">⚠</span>
+      <div>
+        <strong>Non-HL7 content detected:</strong> Line 7 contains <code>---separator---</code> — this will be <strong>ignored</strong> during processing.
+        <span class="spec-ref">F-IN-03</span> <span class="spec-ref">F-IN-04</span>
+      </div>
+    </div>
+
+    <!-- F-IN-05: Status bar with message count -->
+    <div class="status-bar">
+      <span class="badge badge-info">2 messages detected</span>
+      <span class="badge badge-info">MSH, EVN, PID, PD1, NK1, PV1, GT1</span>
+      <span class="badge badge-warn">1 non-HL7 line</span>
+      <span style="flex:1"></span>
+      <button class="btn btn-accent" onclick="goStep(1,document.querySelectorAll('.step-btn')[1])">Parse &amp; Continue →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ================================================================
+     STEP 2: FIELD SELECTION (core interaction screen)
+     Refs: F-AN-01 to F-AN-04, F-HL-01 to F-HL-14, F-RE-01 to F-RE-08
+     ================================================================ -->
+<div class="panel" id="p1">
+  <div class="spec-note">
+    <strong>WIREFRAME — Step 2: Select Fields</strong> (Core Workflow)<br>
+    <span class="spec-ref">F-HL-01</span> Inline clickable fields &nbsp;
+    <span class="spec-ref">F-HL-02</span> 4-state color scheme &nbsp;
+    <span class="spec-ref">F-HL-03</span> Hover tooltip with field path &nbsp;
+    <span class="spec-ref">F-HL-06</span> Segment quick-select in sidebar &nbsp;
+    <span class="spec-ref">F-HL-07</span> Value-based selection (right-click) &nbsp;
+    <span class="spec-ref">F-HL-08</span> Search bar &nbsp;
+    <span class="spec-ref">F-HL-10</span> Selection counter &nbsp;
+    <span class="spec-ref">F-HL-11</span> Selected fields list &nbsp;
+    <span class="spec-ref">F-HL-12</span> Message tabs &nbsp;
+    <span class="spec-ref">F-HL-13</span> "Apply to all msgs" button &nbsp;
+    <span class="spec-ref">F-AN-04</span> Parse status in apply bar &nbsp;
+    <span class="spec-ref">F-RE-05</span> LLM button
+  </div>
+
+  <!-- Legend: F-HL-02 -->
+  <div class="legend-bar">
+    <strong>Legend:</strong>
+    <span class="legend-item"><span class="legend-swatch" style="background:var(--sel-auto-bg);border:1px solid var(--sel-auto-border)"></span> Auto-detected (HL7 spec / Regex)</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:var(--sel-manual-bg);border:1px solid var(--sel-manual-border)"></span> Manually selected</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:var(--sel-llm-bg);border:1px solid var(--sel-llm-border)"></span> LLM suggestion (unconfirmed)</span>
+    <span class="legend-item"><span class="legend-swatch" style="background:var(--sel-neutral-bg);border:1px solid var(--sel-neutral-border)"></span> Not selected</span>
+  </div>
+
+  <div class="sel-layout">
+    <!-- LEFT: Main view -->
+    <div class="sel-main">
+      <!-- Toolbar: F-HL-08, F-RE-05, F-HL-13 -->
+      <div class="sel-toolbar">
+        <input type="text" placeholder="Search values across all messages... (F-HL-08)" id="fieldSearch">
+        <button class="btn btn-outline btn-sm">Select matches</button>
+        <button class="btn btn-llm btn-sm" title="F-RE-05: Runs local NER model, slow">🧠 Analyze with LLM</button>
+        <button class="btn btn-outline btn-sm" title="F-HL-13: Apply Msg 1 selection to all">📋 Apply to all</button>
+      </div>
+
+      <!-- Message tabs: F-HL-12 -->
+      <div class="msg-tabs">
+        <div class="msg-tab active" onclick="showMsg(0)">Msg 1 — ADT^A01 <span class="cnt" id="cnt0">16</span></div>
+        <div class="msg-tab" onclick="showMsg(1)">Msg 2 — ADT^A08 <span class="cnt" id="cnt1">8</span></div>
+      </div>
+
+      <!-- HL7 inline view: F-HL-01, F-HL-02, F-HL-03 -->
+      <div class="hl7-view" id="hl7View" oncontextmenu="showCtx(event)">
+
+        <!-- Message 1 -->
+        <div id="msg0">
+        <div class="seg-line"><span class="seg-name">MSH</span><span class="pipe">|</span><span class="field neutral">^~\&amp;</span><span class="pipe">|</span><span class="field neutral" onclick="tog(this)"><span class="field-tip">MSH.3 – Sending Application</span>SAP</span><span class="pipe">|</span><span class="field neutral" onclick="tog(this)"><span class="field-tip">MSH.4 – Sending Facility</span>KBS</span><span class="pipe">|</span><span class="field neutral">800</span><span class="pipe">|</span><span class="field neutral">0100</span><span class="pipe">|</span><span class="field neutral">20240115120000</span><span class="pipe">||</span><span class="field neutral">ADT^A01^ADT_A07</span><span class="pipe">|</span><span class="field neutral" onclick="tog(this)"><span class="field-tip">MSH.10 – Message Control ID</span>000012345</span><span class="pipe">|</span><span class="field neutral">P</span><span class="pipe">|</span><span class="field neutral">2.5^^^2.16</span><span class="pipe">||</span><span class="field neutral">NP11I0</span><span class="pipe">|</span><span class="field neutral">AL</span><span class="pipe">|</span><span class="field neutral">CHE</span><span class="pipe">|</span><span class="field neutral">8859/1</span></div>
+
+        <div class="seg-line"><span class="seg-name">EVN</span><span class="pipe">|</span><span class="field neutral">A01</span><span class="pipe">|</span><span class="field neutral">20240115120000</span></div>
+
+        <div class="seg-line"><span class="seg-name">PID</span><span class="pipe">|</span><span class="field neutral">1</span><span class="pipe">||</span><span class="field auto" onclick="tog(this)"><span class="field-tip">PID.3 – Patient Identifier List</span>123456^7^M10^KBS^800</span><span class="pipe">||</span><span class="field auto" onclick="tog(this)"><span class="field-tip">PID.5 – Patient Name</span>Müller^Hans^Peter^^Dr.</span><span class="pipe">||</span><span class="field auto" onclick="tog(this)"><span class="field-tip">PID.7 – Date of Birth</span>19850315</span><span class="pipe">|</span><span class="field neutral" onclick="tog(this)"><span class="field-tip">PID.8 – Sex (default: not selected)</span>M</span><span class="pipe">||||||</span><span class="field auto" onclick="tog(this)"><span class="field-tip">PID.13 – Phone/Email (Regex: phone+email)</span>+41612654321^^hans.mueller@email.ch^+41612654322^+41791234567</span><span class="pipe">|||</span><span class="field neutral" onclick="tog(this)"><span class="field-tip">PID.16 – Marital Status</span>M</span><span class="pipe">|||</span><span class="field auto" onclick="tog(this)"><span class="field-tip">PID.19 – AHV Number (Regex: 756.*)</span>756.1234.5678.90</span><span class="pipe">||||||</span><span class="field neutral" onclick="tog(this)"><span class="field-tip">PID.23 – Birth Place</span>Basel</span><span class="pipe">||</span><span class="field neutral" onclick="tog(this)"><span class="field-tip">PID.28 – Nationality</span>CHE</span></div>
+
+        <div class="seg-line"><span class="seg-name">PD1</span><span class="pipe">||||||||||||||</span><span class="field neutral" onclick="tog(this)"><span class="field-tip">PD1.15 – Advance Directive (HFG/EPD)</span>HFGY~HFGN~EPDY</span></div>
+
+        <div class="seg-line"><span class="seg-name">NK1</span><span class="pipe">|</span><span class="field neutral">1</span><span class="pipe">|</span><span class="field auto" onclick="tog(this)"><span class="field-tip">NK1.2 – Next of Kin Name</span>Müller^Anna</span><span class="pipe">||||</span><span class="field auto" onclick="tog(this)"><span class="field-tip">NK1.5 – Phone Number</span>+41612654999</span><span class="pipe">|||||||||||||||||||||||||</span><span class="field neutral" onclick="tog(this)"><span class="field-tip">NK1.7 – Contact Role</span>EMCON</span></div>
+
+        <div class="seg-line"><span class="seg-name">PV1</span><span class="pipe">|</span><span class="field neutral">1</span><span class="pipe">|</span><span class="field neutral">I</span><span class="pipe">|</span><span class="field neutral" onclick="tog(this)"><span class="field-tip">PV1.3 – Assigned Location</span>CHIR^201^A^MED1</span><span class="pipe">||</span><span class="field neutral" onclick="tog(this)">E</span><span class="pipe">||</span><span class="field auto" onclick="tog(this)"><span class="field-tip">PV1.7 – Attending Doctor</span>12345^Schneider^Thomas</span><span class="pipe">|||||||||||</span><span class="field neutral" onclick="tog(this)"><span class="field-tip">PV1.18 – Patient Type</span>V</span><span class="pipe">|</span><span class="field auto" onclick="tog(this)"><span class="field-tip">PV1.19 – Visit Number</span>98765^1^M10</span><span class="pipe">|||</span><span class="field neutral">KV</span><span class="pipe">||||||||||||||||</span><span class="field auto" onclick="tog(this)"><span class="field-tip">PV1.44 – Admit Date/Time</span>20240115120000</span></div>
+
+        <div class="seg-line"><span class="seg-name">GT1</span><span class="pipe">|</span><span class="field neutral">1</span><span class="pipe">|||||||||||||||</span><span class="field auto" onclick="tog(this)"><span class="field-tip">GT1.16 – Employer Name</span>USB^AG-Basel^^^^12345</span><span class="pipe">||</span><span class="field auto" onclick="tog(this)"><span class="field-tip">GT1.17 – Employer Address</span>Hauptstr. 1^^Basel^^4001^CH</span><span class="pipe">||</span><span class="field auto" onclick="tog(this)"><span class="field-tip">GT1.18 – Employer Phone</span>+41612659000~+41612659001</span></div>
+
+        <!-- Non-HL7 warning line: F-IN-03 -->
+        <div class="warn-line">⚠ <code>---separator---</code> — ignored (non-HL7 content)</div>
+        </div>
+
+        <!-- Message 2 (hidden by default) -->
+        <div id="msg1" style="display:none">
+        <div class="seg-line"><span class="seg-name">MSH</span><span class="pipe">|</span><span class="field neutral">^~\&amp;</span><span class="pipe">|</span><span class="field neutral">SAP</span><span class="pipe">|</span><span class="field neutral">KBS</span><span class="pipe">|</span><span class="field neutral">800</span><span class="pipe">|</span><span class="field neutral">0100</span><span class="pipe">|</span><span class="field neutral">20240115130000</span><span class="pipe">||</span><span class="field neutral">ADT^A08^ADT_A07</span><span class="pipe">|</span><span class="field neutral">000012346</span><span class="pipe">|</span><span class="field neutral">P</span><span class="pipe">|</span><span class="field neutral">2.5^^^2.16</span><span class="pipe">||</span><span class="field neutral">NP0200</span><span class="pipe">|</span><span class="field neutral">AL</span><span class="pipe">|</span><span class="field neutral">CHE</span><span class="pipe">|</span><span class="field neutral">8859/1</span></div>
+        <div class="seg-line"><span class="seg-name">PID</span><span class="pipe">|</span><span class="field neutral">1</span><span class="pipe">||</span><span class="field auto" onclick="tog(this)">123456^7^M10^KBS^800</span><span class="pipe">||</span><span class="field auto" onclick="tog(this)">Müller^Hans^Peter^^Dr.</span><span class="pipe">||</span><span class="field auto" onclick="tog(this)">19850315</span><span class="pipe">|</span><span class="field neutral" onclick="tog(this)">M</span><span class="pipe">||||||</span><span class="field auto" onclick="tog(this)">+41612654321^^hans.mueller@email.ch</span><span class="pipe">|||</span><span class="field neutral" onclick="tog(this)">M</span><span class="pipe">|||</span><span class="field auto" onclick="tog(this)">756.1234.5678.90</span><span class="pipe">||||||</span><span class="field neutral" onclick="tog(this)">Basel</span><span class="pipe">||</span><span class="field neutral" onclick="tog(this)">CHE</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Sidebar -->
+    <div class="sel-sidebar">
+      <!-- Selection counter: F-HL-10 -->
+      <div class="sidebar-card">
+        <div class="sidebar-card-hdr">Selection Summary</div>
+        <div class="sel-counter">
+          <div class="num"><span id="selCount">16</span> / <span id="totalCount">42</span></div>
+          <div class="label">fields selected for anonymization</div>
+        </div>
+      </div>
+
+      <!-- Segment quick-select: F-HL-06 -->
+      <div class="sidebar-card">
+        <div class="sidebar-card-hdr">Quick Select by Segment</div>
+        <div class="sidebar-card-body">
+          <div class="seg-btns">
+            <span class="seg-btn" onclick="this.classList.toggle('active')">MSH</span>
+            <span class="seg-btn" onclick="this.classList.toggle('active')">EVN</span>
+            <span class="seg-btn active" onclick="this.classList.toggle('active')">PID</span>
+            <span class="seg-btn" onclick="this.classList.toggle('active')">PD1</span>
+            <span class="seg-btn active" onclick="this.classList.toggle('active')">NK1</span>
+            <span class="seg-btn active" onclick="this.classList.toggle('active')">PV1</span>
+            <span class="seg-btn active" onclick="this.classList.toggle('active')">GT1</span>
+            <span class="seg-btn" onclick="this.classList.toggle('active')">ZBE</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Selected fields list: F-HL-11 -->
+      <div class="sidebar-card">
+        <div class="sidebar-card-hdr">Selected Fields</div>
+        <div class="sidebar-card-body" style="padding:4px 0">
+          <div class="sel-list">
+            <div class="sel-item"><span class="swatch" style="background:var(--sel-auto-border)"></span><span class="path">PID.3</span><span class="val">123456^7^M10^KBS^800</span><span class="desel">✕</span></div>
+            <div class="sel-item"><span class="swatch" style="background:var(--sel-auto-border)"></span><span class="path">PID.5</span><span class="val">Müller^Hans^Peter^^Dr.</span><span class="desel">✕</span></div>
+            <div class="sel-item"><span class="swatch" style="background:var(--sel-auto-border)"></span><span class="path">PID.7</span><span class="val">19850315</span><span class="desel">✕</span></div>
+            <div class="sel-item"><span class="swatch" style="background:var(--sel-auto-border)"></span><span class="path">PID.13</span><span class="val">+41612654321^^hans.m...</span><span class="desel">✕</span></div>
+            <div class="sel-item"><span class="swatch" style="background:var(--sel-auto-border)"></span><span class="path">PID.19</span><span class="val">756.1234.5678.90</span><span class="desel">✕</span></div>
+            <div class="sel-item"><span class="swatch" style="background:var(--sel-auto-border)"></span><span class="path">NK1.2</span><span class="val">Müller^Anna</span><span class="desel">✕</span></div>
+            <div class="sel-item"><span class="swatch" style="background:var(--sel-auto-border)"></span><span class="path">NK1.5</span><span class="val">+41612654999</span><span class="desel">✕</span></div>
+            <div class="sel-item"><span class="swatch" style="background:var(--sel-auto-border)"></span><span class="path">PV1.7</span><span class="val">12345^Schneider^Thomas</span><span class="desel">✕</span></div>
+            <div class="sel-item"><span class="swatch" style="background:var(--sel-auto-border)"></span><span class="path">PV1.19</span><span class="val">98765^1^M10</span><span class="desel">✕</span></div>
+            <div class="sel-item"><span class="swatch" style="background:var(--sel-auto-border)"></span><span class="path">PV1.44</span><span class="val">20240115120000</span><span class="desel">✕</span></div>
+            <div class="sel-item"><span class="swatch" style="background:var(--sel-auto-border)"></span><span class="path">GT1.16</span><span class="val">USB^AG-Basel^^^^12345</span><span class="desel">✕</span></div>
+            <div class="sel-item"><span class="swatch" style="background:var(--sel-auto-border)"></span><span class="path">GT1.17</span><span class="val">Hauptstr. 1^^Basel^^...</span><span class="desel">✕</span></div>
+            <div class="sel-item"><span class="swatch" style="background:var(--sel-auto-border)"></span><span class="path">GT1.18</span><span class="val">+41612659000~+41612...</span><span class="desel">✕</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Value-based selection: F-HL-07 -->
+      <div class="sidebar-card">
+        <div class="sidebar-card-hdr">Value-based Selection</div>
+        <div class="sidebar-card-body" style="font-size:11px;color:var(--text-muted);line-height:1.6">
+          Right-click a field or use Search to find &amp; select a value across all messages.
+          <div style="margin-top:8px;padding:8px;background:var(--panel);border-radius:4px;font-family:monospace;font-size:10px">
+            "Müller" → found in <strong>4 fields</strong> across 2 msgs<br>
+            <button class="btn btn-sm btn-accent" style="margin-top:4px;font-size:10px;padding:3px 8px">Select all 4</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom bar: F-AN-04 -->
+  <div class="apply-bar">
+    <span style="font-size:12px;color:var(--text-muted)">✓ HL7 detected — auto-preselection active <span class="spec-ref">F-AN-04</span></span>
+    <button class="btn btn-accent" onclick="goStep(2,document.querySelectorAll('.step-btn')[2])">Continue to Settings →</button>
+  </div>
+</div>
+
+<!-- Context menu: F-HL-05, F-HL-07 -->
+<div class="ctx-menu" id="ctxMenu">
+  <div class="ctx-item" onclick="hideCtx()">✓ Select this field <span class="shortcut">Click</span></div>
+  <div class="ctx-item" onclick="hideCtx()">☐ Deselect this field</div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" onclick="hideCtx()">▤ Select all in <strong style="margin:0 2px">PID</strong> segment <span class="shortcut">F-HL-06</span></div>
+  <div class="ctx-item" onclick="hideCtx()">◎ Select "<strong style="margin:0 2px">Müller</strong>" everywhere <span class="shortcut">F-HL-07</span></div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" onclick="hideCtx()">🔍 Search for this value <span class="shortcut">F-HL-08</span></div>
+</div>
+
+<!-- ================================================================
+     STEP 3: SETTINGS
+     Refs: F-AO-01 to F-AO-07, F-RE-01 to F-RE-04
+     ================================================================ -->
+<div class="panel" id="p2">
+  <div class="spec-note">
+    <strong>WIREFRAME — Step 3: Settings</strong><br>
+    <span class="spec-ref">F-AO-01</span> Default mask character &nbsp;
+    <span class="spec-ref">F-AO-02</span> Configurable pattern &nbsp;
+    <span class="spec-ref">F-AO-04</span> Length strategy &nbsp;
+    <span class="spec-ref">F-AO-05</span> Consistent pseudonymization &nbsp;
+    <span class="spec-ref">F-AO-07</span> Structure preservation &nbsp;
+    <span class="spec-ref">F-RE-01</span><span class="spec-ref">F-RE-02</span> Regex patterns
+  </div>
+
+  <div class="settings-grid">
+    <div class="setting-card">
+      <label>Anonymization Pattern <span class="spec-ref">F-AO-01</span> <span class="spec-ref">F-AO-02</span></label>
+      <input type="text" value="*">
+      <div class="hint">Character used for masking. Examples: *, X, #, [ANON]</div>
+    </div>
+    <div class="setting-card">
+      <label>Length Strategy <span class="spec-ref">F-AO-04</span></label>
+      <select>
+        <option selected>Fixed value (***) — recommended</option>
+        <option>Datatype max length (if &lt; 20 chars)</option>
+      </select>
+      <div class="hint">Fixed value is safer — original length can allow inference.</div>
+    </div>
+    <div class="setting-card">
+      <label>Options</label>
+      <div class="chk-row"><input type="checkbox"> <span>Consistent pseudonymization <span class="spec-ref">F-AO-05</span></span></div>
+      <div class="chk-row"><input type="checkbox" checked> <span>Preserve HL7 separators (^~\&amp;) <span class="spec-ref">F-AO-07</span></span></div>
+      <div class="chk-row"><input type="checkbox" checked> <span>Skip empty fields <span class="spec-ref">F-AO-06</span></span></div>
+    </div>
+    <div class="setting-card">
+      <label>Regex Patterns (active by default) <span class="spec-ref">F-RE-01</span> <span class="spec-ref">F-RE-02</span></label>
+      <div class="chk-row"><input type="checkbox" checked> Phone numbers (international)</div>
+      <div class="chk-row"><input type="checkbox" checked> Email addresses</div>
+      <div class="chk-row"><input type="checkbox" checked> Date formats (YYYYMMDD, DD.MM.YYYY)</div>
+      <div class="chk-row"><input type="checkbox" checked> Swiss AHV numbers (756.*)</div>
+      <div class="chk-row"><input type="checkbox"> <span>Custom pattern… <span class="spec-ref">F-RE-04</span></span></div>
+    </div>
+  </div>
+
+  <div class="apply-bar" style="margin-top:16px">
+    <button class="btn btn-outline" onclick="goStep(1,document.querySelectorAll('.step-btn')[1])">← Back to Selection</button>
+    <button class="btn btn-action btn-lg" onclick="goStep(3,document.querySelectorAll('.step-btn')[3])">
+      ▶ Anonymize <span class="spec-ref">F-AO-03</span>
+    </button>
+  </div>
+</div>
+
+<!-- ================================================================
+     STEP 4: OUTPUT
+     Refs: F-OUT-01 to F-OUT-06
+     ================================================================ -->
+<div class="panel" id="p3">
+  <div class="spec-note">
+    <strong>WIREFRAME — Step 4: Output</strong><br>
+    <span class="spec-ref">F-OUT-01</span> Display anonymized text &nbsp;
+    <span class="spec-ref">F-OUT-02</span> Copy to clipboard &nbsp;
+    <span class="spec-ref">F-OUT-03</span> Export as .txt &nbsp;
+    <span class="spec-ref">F-OUT-04</span> Filename convention &nbsp;
+    <span class="spec-ref">F-OUT-06</span> Anonymization log
+  </div>
+
+  <!-- F-OUT-06: Log summary -->
+  <div class="status-bar" style="margin-bottom:10px">
+    <span class="badge badge-success">✓ 16 fields anonymized across 2 messages</span>
+    <span class="badge badge-info">Pattern: ***</span>
+    <span class="badge badge-info">Structure preserved</span>
+  </div>
+
+  <div class="output-area">
+    <!-- F-OUT-01: Anonymized output -->
+    <textarea readonly spellcheck="false">MSH|^~\&|SAP|KBS|800|0100|20240115120000||ADT^A01^ADT_A07|000012345|P|2.5^^^2.16||NP11I0|AL|CHE|8859/1
+EVN|A01|20240115120000
+PID|1||***^***^***^***^***||***^***^***^^***||***|M||||||***^^***^***^***|||M|||***||||||***||CHE
+PD1||||||||||||||HFGY~HFGN~EPDY
+NK1|1|***^***||||***|||||||||||||||||||||||||EMCON
+PV1|1|I|CHIR^201^A^MED1||E||***^***^***|||||||||||V|***^***^***|||KV||||||||||||||||***
+GT1|1|||||||||||||||***^***^^^^***||***^^***^^***^***||***~***
+---
+MSH|^~\&|SAP|KBS|800|0100|20240115130000||ADT^A08^ADT_A07|000012346|P|2.5^^^2.16||NP0200|AL|CHE|8859/1
+PID|1||***^***^***^***^***||***^***^***^^***||***|M||||||***^^***|||M|||***||||||***||CHE</textarea>
+
+    <!-- F-OUT-02, F-OUT-03 -->
+    <div class="output-toolbar">
+      <button class="btn btn-accent" onclick="copyOutput()">📋 Copy to Clipboard</button>
+      <button class="btn btn-outline">💾 Export as .txt</button>
+      <button class="btn btn-outline" onclick="goStep(1,document.querySelectorAll('.step-btn')[1])">← Back to Selection</button>
+    </div>
+  </div>
+</div>
+
+</div><!-- /content -->
+
+<!-- ================================================================
+     JAVASCRIPT: Wireframe interactions
+     ================================================================ -->
+<script>
+// Step navigation
+function goStep(n, btn) {
+  document.querySelectorAll('.panel').forEach((p,i) => p.classList.toggle('active', i===n));
+  document.querySelectorAll('.step-btn').forEach((b,i) => {
+    b.classList.toggle('active', i===n);
+    if (i < n) b.classList.add('done'); else b.classList.remove('done');
+  });
+}
+
+// Theme toggle
+function toggleTheme() {
+  const h = document.documentElement;
+  h.dataset.theme = h.dataset.theme === 'dark' ? 'light' : 'dark';
+}
+
+// Message tab switching: F-HL-12
+function showMsg(n) {
+  document.querySelectorAll('.msg-tab').forEach((t,i) => t.classList.toggle('active', i===n));
+  document.getElementById('msg0').style.display = n===0 ? '' : 'none';
+  document.getElementById('msg1').style.display = n===1 ? '' : 'none';
+}
+
+// Field toggle: F-HL-01, F-HL-02
+function tog(el) {
+  const states = ['auto','manual','llm','neutral'];
+  const cur = states.find(s => el.classList.contains(s)) || 'neutral';
+  el.classList.remove(...states);
+  if (cur === 'neutral') el.classList.add('manual');
+  else if (cur === 'llm') el.classList.add('manual'); // confirm LLM suggestion
+  else el.classList.add('neutral');
+  updateCounts();
+  hideCtx();
+}
+
+// Count selected fields: F-HL-10
+function updateCounts() {
+  const sel = document.querySelectorAll('#hl7View .field.auto, #hl7View .field.manual').length;
+  document.getElementById('selCount').textContent = sel;
+}
+
+// Context menu: F-HL-05
+function showCtx(e) {
+  if (!e.target.closest('.field')) return;
+  e.preventDefault();
+  const m = document.getElementById('ctxMenu');
+  m.style.left = e.pageX + 'px';
+  m.style.top = e.pageY + 'px';
+  m.classList.add('show');
+}
+function hideCtx() { document.getElementById('ctxMenu').classList.remove('show'); }
+document.addEventListener('click', (e) => { if (!e.target.closest('.ctx-menu')) hideCtx(); });
+
+// Copy output: F-OUT-02
+function copyOutput() {
+  const ta = document.querySelector('#p3 textarea');
+  ta.select(); document.execCommand('copy');
+  alert('Copied to clipboard!');
+}
+</script>
+</body>
+</html>
