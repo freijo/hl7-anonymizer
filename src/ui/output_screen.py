@@ -1,15 +1,18 @@
-"""WI-006: Step 4 — Output screen.
+"""WI-006/WI-017: Step 4 — Output screen.
 
-Displays anonymized HL7 text with Copy-to-Clipboard button.
-DoD: Copy funktioniert.
+Displays anonymized HL7 text with Copy-to-Clipboard and Export buttons.
 """
 
 from __future__ import annotations
+
+from datetime import datetime
+from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QApplication,
+    QFileDialog,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -73,6 +76,27 @@ class OutputScreen(QWidget):
         self.copy_btn.clicked.connect(self._copy_to_clipboard)
         top_layout.addWidget(self.copy_btn)
 
+        # Export button
+        self.export_btn = QPushButton("Export .txt")
+        self.export_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.export_btn.setFixedHeight(36)
+        self.export_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {COLORS_LIGHT['accent']}; color: white;
+                border: none; border-radius: 4px; padding: 0 24px;
+                font-size: 13px; font-weight: 700;
+            }}
+            QPushButton:hover {{
+                background: {COLORS_LIGHT['accent_hover']};
+            }}
+            QPushButton:disabled {{
+                background: {COLORS_LIGHT['border']}; color: {COLORS_LIGHT['text_muted']};
+            }}
+        """)
+        self.export_btn.setEnabled(False)
+        self.export_btn.clicked.connect(self._export_to_file)
+        top_layout.addWidget(self.export_btn)
+
         outer.addWidget(top_bar)
 
         # --- Main textarea ---
@@ -107,6 +131,7 @@ class OutputScreen(QWidget):
         self._field_count = field_count
         self.text_edit.setPlainText(text)
         self.copy_btn.setEnabled(bool(text))
+        self.export_btn.setEnabled(bool(text))
 
         if text:
             word = "field" if field_count == 1 else "fields"
@@ -126,3 +151,22 @@ class OutputScreen(QWidget):
             QApplication.clipboard().setText(text)
             self.feedback_label.setText("Copied to clipboard!")
             QTimer.singleShot(2000, lambda: self.feedback_label.setText(""))
+
+    def _export_to_file(self):
+        text = self.text_edit.toPlainText()
+        if not text:
+            return
+
+        default_name = f"hl7_anonymized_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export anonymized HL7",
+            default_name,
+            "Text files (*.txt);;All files (*)",
+        )
+        if not path:
+            return
+
+        Path(path).write_text(text, encoding="utf-8")
+        self.feedback_label.setText(f"Exported to {Path(path).name}")
+        QTimer.singleShot(3000, lambda: self.feedback_label.setText(""))

@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.config.field_definitions import DEFAULT_PII_FIELDS
+from src.config.field_descriptions import get_field_tooltip
 from src.parser.hl7_parser import HL7Field, HL7Message, HL7Segment, ParseResult, tokenize_field_value
 from src.ui.theme import COLORS_LIGHT, FIELD_STATES, WARNINGS
 
@@ -59,7 +60,7 @@ class ValueWidget(QLabel):
         self.setText(text if text else " ")
         self.setFont(MONO_FONT)
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        self.setToolTip(path)
+        self.setToolTip(get_field_tooltip(field.segment_name, field.field_index))
         self._apply_style()
 
     def mousePressEvent(self, event):

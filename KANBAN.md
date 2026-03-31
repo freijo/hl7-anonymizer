@@ -3,6 +3,8 @@
 ## IN PROGRESS (WIP: 2)
 
 ## REVIEW
+- [ ] WI-015: Hover Tooltips
+- [ ] WI-017: Export .txt
 
 ## DONE
 - [x] WI-001: HL7 Parser (best-effort)
@@ -21,6 +23,4 @@
 - [ ] WI-011: Segment Quick-Select (Sidebar)
 - [ ] WI-012: Value-based Selection
 - [ ] WI-013: Search
-- [ ] WI-015: Hover Tooltips
-- [ ] WI-017: Export .txt
 - [ ] WI-018: Sidebar: Selected Fields
