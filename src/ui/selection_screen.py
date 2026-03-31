@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QScrollArea,
     QVBoxLayout,
     QWidget,
@@ -407,6 +408,40 @@ class SelectionScreen(QWidget):
         sync_card.layout().addWidget(self.sync_status_label)
         sidebar_layout.addWidget(sync_card)
 
+        # WI-011: Segment Quick-Select card
+        seg_card = self._make_card("Segments")
+        self.seg_buttons_layout = QHBoxLayout()
+        self.seg_buttons_layout.setSpacing(4)
+        self.seg_buttons_layout.setContentsMargins(0, 0, 0, 0)
+        seg_btn_wrap = QWidget()
+        seg_btn_wrap.setStyleSheet("border: none;")
+        seg_btn_wrap.setLayout(self.seg_buttons_layout)
+        seg_card.layout().addWidget(seg_btn_wrap)
+
+        self.seg_hint_label = QLabel("No segments yet.")
+        self.seg_hint_label.setStyleSheet(
+            f"color: {COLORS_LIGHT['text_muted']}; font-size: 10px; border: none;"
+        )
+        seg_card.layout().addWidget(self.seg_hint_label)
+        sidebar_layout.addWidget(seg_card)
+
+        # WI-018: Selected Fields list card
+        selected_card = self._make_card("Selected Fields")
+        self.selected_scroll = QScrollArea()
+        self.selected_scroll.setWidgetResizable(True)
+        self.selected_scroll.setFixedHeight(150)
+        self.selected_scroll.setStyleSheet(
+            f"QScrollArea {{ background: {COLORS_LIGHT['bg']}; border: none; }}"
+        )
+        self.selected_list_widget = QWidget()
+        self.selected_list_layout = QVBoxLayout(self.selected_list_widget)
+        self.selected_list_layout.setContentsMargins(0, 0, 0, 0)
+        self.selected_list_layout.setSpacing(2)
+        self.selected_list_layout.addStretch()
+        self.selected_scroll.setWidget(self.selected_list_widget)
+        selected_card.layout().addWidget(self.selected_scroll)
+        sidebar_layout.addWidget(selected_card)
+
         # Parse status card
         status_card = self._make_card("Parse Status")
         self.parse_status_label = QLabel("No data")
@@ -470,6 +505,7 @@ class SelectionScreen(QWidget):
         self._segment_lines.clear()
         self._render()
         self._build_path_index()
+        self._build_segment_buttons()
         if result.is_valid_hl7:
             self._apply_auto_preselection()
         self._update_counter()
@@ -581,6 +617,7 @@ class SelectionScreen(QWidget):
         self.sel_count_label.setText(str(selected))
         word = "field" if total == 1 else "fields"
         self.sel_total_label.setText(f"of {total} {word} selected")
+        self._update_selected_list()
 
     def _update_parse_status(self):
         r = self._parse_result
@@ -604,6 +641,140 @@ class SelectionScreen(QWidget):
             self.parse_status_label.setStyleSheet(
                 f"color: {WARNINGS['non_hl7']['text']}; font-size: 11px; border: none;"
             )
+
+    def _build_segment_buttons(self):
+        """WI-011: Build quick-select buttons for each unique segment name."""
+        # Clear existing buttons
+        while self.seg_buttons_layout.count():
+            item = self.seg_buttons_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        r = self._parse_result
+        if r is None or not r.is_valid_hl7:
+            self.seg_hint_label.setText("No segments yet.")
+            self.seg_hint_label.show()
+            return
+
+        # Collect unique segment names in order of appearance
+        seen: set[str] = set()
+        seg_names: list[str] = []
+        for msg in r.messages:
+            for seg in msg.segments:
+                if seg.name not in seen:
+                    seen.add(seg.name)
+                    seg_names.append(seg.name)
+
+        if not seg_names:
+            self.seg_hint_label.setText("No segments yet.")
+            self.seg_hint_label.show()
+            return
+
+        self.seg_hint_label.setText("Click to toggle segment.")
+        for name in seg_names:
+            btn = QPushButton(name)
+            btn.setFixedHeight(24)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    background: {COLORS_LIGHT['accent_light']}; color: {COLORS_LIGHT['accent']};
+                    border: 1px solid {COLORS_LIGHT['border']}; border-radius: 3px;
+                    font-size: 10px; font-weight: 700; padding: 0 6px;
+                }}
+                QPushButton:hover {{
+                    background: {COLORS_LIGHT['accent']}; color: white;
+                }}
+            """)
+            btn.setToolTip(f"Select/deselect all {name} fields")
+            btn.clicked.connect(lambda checked, n=name: self._toggle_segment_by_name(n))
+            self.seg_buttons_layout.addWidget(btn)
+
+        self.seg_buttons_layout.addStretch()
+
+    def _toggle_segment_by_name(self, seg_name: str):
+        """Toggle all value widgets belonging to the given segment name."""
+        widgets = [vw for vw in self._all_value_widgets if vw.field.segment_name == seg_name]
+        if not widgets:
+            return
+        any_neutral = any(not vw.is_selected() for vw in widgets)
+        new_state = STATE_MANUAL if any_neutral else STATE_NEUTRAL
+        for vw in widgets:
+            vw.set_state(new_state)
+            if self.sync_checkbox.isChecked():
+                self._sync_to_others(vw)
+        self._update_counter()
+
+    def _update_selected_list(self):
+        """WI-018: Rebuild the selected fields list in the sidebar."""
+        # Clear existing entries
+        while self.selected_list_layout.count():
+            item = self.selected_list_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        selected = [vw for vw in self._all_value_widgets if vw.is_selected()]
+
+        if not selected:
+            empty = QLabel("No fields selected.")
+            empty.setStyleSheet(
+                f"color: {COLORS_LIGHT['text_muted']}; font-size: 10px;"
+            )
+            self.selected_list_layout.addWidget(empty)
+            self.selected_list_layout.addStretch()
+            return
+
+        # Group by path to avoid duplicates (multi-message sync)
+        seen_paths: set[str] = set()
+        for vw in selected:
+            if vw.path in seen_paths:
+                continue
+            seen_paths.add(vw.path)
+
+            row = QWidget()
+            row.setStyleSheet("background: none;")
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(2, 1, 2, 1)
+            row_layout.setSpacing(4)
+
+            path_label = QLabel(f"{vw.path}")
+            path_label.setStyleSheet(
+                f"color: {COLORS_LIGHT['accent']}; font-size: 10px; font-weight: 600;"
+            )
+            row_layout.addWidget(path_label)
+
+            preview = vw.value_text[:12] + ("..." if len(vw.value_text) > 12 else "")
+            val_label = QLabel(preview)
+            val_label.setStyleSheet(
+                f"color: {COLORS_LIGHT['text_muted']}; font-size: 10px;"
+            )
+            row_layout.addWidget(val_label)
+
+            row_layout.addStretch()
+
+            desel_btn = QPushButton("\u2715")
+            desel_btn.setFixedSize(16, 16)
+            desel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            desel_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background: none; border: none; color: {COLORS_LIGHT['text_muted']};
+                    font-size: 10px; padding: 0;
+                }}
+                QPushButton:hover {{ color: {WARNINGS['non_hl7']['text']}; }}
+            """)
+            desel_btn.setToolTip("Deselect")
+            desel_btn.clicked.connect(lambda checked, p=vw.path: self._deselect_by_path(p))
+            row_layout.addWidget(desel_btn)
+
+            self.selected_list_layout.addWidget(row)
+
+        self.selected_list_layout.addStretch()
+
+    def _deselect_by_path(self, path: str):
+        """Deselect all value widgets with the given path."""
+        for vw in self._all_value_widgets:
+            if vw.path == path:
+                vw.set_state(STATE_NEUTRAL)
+        self._update_counter()
 
     def get_selections(self) -> list[tuple[int, str, int, str, str]]:
         """Return list of (msg_index, segment_name, field_index, path, state) for selected values."""
