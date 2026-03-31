@@ -3,11 +3,11 @@
 ## IN PROGRESS (WIP: 2)
 
 ## REVIEW
-- [ ] WI-002: Input-Screen
-- [ ] WI-003: Field Selection (Basis)
 
 ## DONE
 - [x] WI-001: HL7 Parser (best-effort)
+- [x] WI-002: Input-Screen
+- [x] WI-003: Field Selection (Basis)
 - [x] WI-004: Auto-Preselection + Multi-Message Sync
 
 ## BACKLOG (Tier 0 — MVP)
