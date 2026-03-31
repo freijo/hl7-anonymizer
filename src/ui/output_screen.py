@@ -1,15 +1,128 @@
-"""WI-006: Step 4 — Output screen — placeholder."""
+"""WI-006: Step 4 — Output screen.
 
-from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
-from src.ui.theme import COLORS_LIGHT
+Displays anonymized HL7 text with Copy-to-Clipboard button.
+DoD: Copy funktioniert.
+"""
+
+from __future__ import annotations
+
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QFont
+from PySide6.QtWidgets import (
+    QApplication,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
+
+from src.ui.theme import COLORS_LIGHT, WARNINGS
+
+
+MONO_FONT = QFont("Cascadia Code", 11)
+MONO_FONT.setStyleHint(QFont.StyleHint.Monospace)
 
 
 class OutputScreen(QWidget):
+    """Step 4: Display anonymized HL7 output with copy functionality."""
+
     def __init__(self, parent=None):
         super().__init__(parent)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(28, 16, 28, 16)
-        label = QLabel("Step 4: Output (coming in WI-006)")
-        label.setStyleSheet(f"color: {COLORS_LIGHT['text_muted']}; font-size: 14px;")
-        layout.addWidget(label)
-        layout.addStretch()
+        self._field_count = 0
+        self._build_ui()
+
+    def _build_ui(self):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(28, 16, 28, 16)
+        outer.setSpacing(12)
+
+        # --- Top bar: status + actions ---
+        top_bar = QWidget()
+        top_layout = QHBoxLayout(top_bar)
+        top_layout.setContentsMargins(0, 0, 0, 0)
+        top_layout.setSpacing(12)
+
+        self.status_label = QLabel("No anonymized data yet.")
+        self.status_label.setStyleSheet(
+            f"color: {COLORS_LIGHT['text_muted']}; font-size: 12px;"
+        )
+        top_layout.addWidget(self.status_label)
+
+        top_layout.addStretch()
+
+        # Copy button
+        self.copy_btn = QPushButton("Copy to Clipboard")
+        self.copy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.copy_btn.setFixedHeight(36)
+        self.copy_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {COLORS_LIGHT['action_bg']}; color: white;
+                border: none; border-radius: 4px; padding: 0 24px;
+                font-size: 13px; font-weight: 700;
+            }}
+            QPushButton:hover {{
+                background: {COLORS_LIGHT['action_hover']};
+            }}
+            QPushButton:disabled {{
+                background: {COLORS_LIGHT['border']}; color: {COLORS_LIGHT['text_muted']};
+            }}
+        """)
+        self.copy_btn.setEnabled(False)
+        self.copy_btn.clicked.connect(self._copy_to_clipboard)
+        top_layout.addWidget(self.copy_btn)
+
+        outer.addWidget(top_bar)
+
+        # --- Main textarea ---
+        self.text_edit = QTextEdit()
+        self.text_edit.setFont(MONO_FONT)
+        self.text_edit.setReadOnly(True)
+        self.text_edit.setPlaceholderText(
+            "Anonymized HL7 output will appear here.\n\n"
+            "Select fields in Step 2, then navigate here to anonymize."
+        )
+        self.text_edit.setStyleSheet(f"""
+            QTextEdit {{
+                background: {COLORS_LIGHT['surface']};
+                border: 1px solid {COLORS_LIGHT['border']};
+                border-radius: 6px;
+                padding: 12px;
+                color: {COLORS_LIGHT['text']};
+            }}
+        """)
+        outer.addWidget(self.text_edit, 1)
+
+        # --- Feedback label (shown briefly after copy) ---
+        self.feedback_label = QLabel("")
+        self.feedback_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.feedback_label.setStyleSheet(
+            f"color: {WARNINGS['success']['text']}; font-size: 11px;"
+        )
+        outer.addWidget(self.feedback_label)
+
+    def set_anonymized_output(self, text: str, field_count: int):
+        """Receive anonymized text and display it."""
+        self._field_count = field_count
+        self.text_edit.setPlainText(text)
+        self.copy_btn.setEnabled(bool(text))
+
+        if text:
+            word = "field" if field_count == 1 else "fields"
+            self.status_label.setText(f"Anonymized — {field_count} {word} masked")
+            self.status_label.setStyleSheet(
+                f"color: {WARNINGS['success']['text']}; font-size: 12px; font-weight: 600;"
+            )
+        else:
+            self.status_label.setText("No anonymized data yet.")
+            self.status_label.setStyleSheet(
+                f"color: {COLORS_LIGHT['text_muted']}; font-size: 12px;"
+            )
+
+    def _copy_to_clipboard(self):
+        text = self.text_edit.toPlainText()
+        if text:
+            QApplication.clipboard().setText(text)
+            self.feedback_label.setText("Copied to clipboard!")
+            QTimer.singleShot(2000, lambda: self.feedback_label.setText(""))

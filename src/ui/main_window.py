@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.engine.anonymizer import anonymize
 from src.ui.input_screen import InputScreen
 from src.ui.selection_screen import SelectionScreen
 from src.ui.settings_screen import SettingsScreen
@@ -168,3 +169,18 @@ class MainWindow(QMainWindow):
                 self.selection_screen.set_parse_result(
                     self.input_screen.get_parse_result()
                 )
+
+            # When navigating to step 4, run anonymization engine
+            if index == 3:
+                self._run_anonymization()
+
+    def _run_anonymization(self):
+        """Collect selections from step 2, run engine, pass result to step 4."""
+        parse_result = self.input_screen.get_parse_result()
+        raw_selections = self.selection_screen.get_selections()
+
+        # Build set of (msg_index, path) for the engine
+        selections = {(msg_idx, path) for msg_idx, _seg, _fi, path, _state in raw_selections}
+
+        result = anonymize(parse_result, selections)
+        self.output_screen.set_anonymized_output(result, len(selections))

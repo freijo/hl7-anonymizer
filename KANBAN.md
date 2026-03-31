@@ -10,6 +10,7 @@
 - [x] WI-003: Field Selection (Basis)
 - [x] WI-004: Auto-Preselection + Multi-Message Sync
 - [x] WI-005: Anonymisierungs-Engine
+- [x] WI-006: Output-Screen
 
 ## BACKLOG (Tier 0 — MVP)
 - [ ] WI-005: Anonymisierungs-Engine
