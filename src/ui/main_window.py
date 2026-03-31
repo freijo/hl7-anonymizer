@@ -182,5 +182,6 @@ class MainWindow(QMainWindow):
         # Build set of (msg_index, path) for the engine
         selections = {(msg_idx, path) for msg_idx, _seg, _fi, path, _state in raw_selections}
 
-        result = anonymize(parse_result, selections)
+        mask = self.settings_screen.get_mask()
+        result = anonymize(parse_result, selections, mask=mask)
         self.output_screen.set_anonymized_output(result, len(selections))

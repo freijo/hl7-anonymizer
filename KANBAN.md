@@ -11,6 +11,7 @@
 - [x] WI-004: Auto-Preselection + Multi-Message Sync
 - [x] WI-005: Anonymisierungs-Engine
 - [x] WI-006: Output-Screen
+- [x] WI-007: Maskenzeichen-Setting
 
 ## BACKLOG (Tier 0 — MVP)
 - [ ] WI-005: Anonymisierungs-Engine
