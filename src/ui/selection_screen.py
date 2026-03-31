@@ -800,12 +800,19 @@ class SelectionScreen(QWidget):
         for vw in self._all_value_widgets:
             if query and self._match_query(query, vw.value_text.lower()):
                 self._search_matches.append(vw)
+                vw._apply_style()
+                # Override border to highlight match
+                s = FIELD_STATES[vw.state]
+                bg = s["background"]
+                text_color = s["text"] or COLORS_LIGHT["text"]
                 vw.setStyleSheet(
-                    vw.styleSheet().replace("border-radius: 2px;",
-                    f"border-radius: 2px; outline: 2px solid {COLORS_LIGHT['accent']};")
+                    f"QLabel {{ background: {bg}; border: 2px solid {COLORS_LIGHT['accent']}; "
+                    f"color: {text_color}; padding: 1px 3px; border-radius: 2px; }}"
+                    f"QToolTip {{ background: {COLORS_LIGHT['gray_dark']}; "
+                    f"color: white; border: 1px solid {COLORS_LIGHT['border']}; "
+                    f"padding: 4px 8px; font-size: 12px; }}"
                 )
             else:
-                # Re-apply normal style
                 vw._apply_style()
 
         if query:
