@@ -16,6 +16,7 @@ from __future__ import annotations
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QCursor, QFont
 from PySide6.QtWidgets import (
+    QCheckBox,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -24,6 +25,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.config.field_definitions import DEFAULT_PII_FIELDS
 from src.parser.hl7_parser import HL7Field, HL7Message, HL7Segment, ParseResult, tokenize_field_value
 from src.ui.theme import COLORS_LIGHT, FIELD_STATES, WARNINGS
 
@@ -383,6 +385,27 @@ class SelectionScreen(QWidget):
         counter_card.layout().addLayout(counter_body)
         sidebar_layout.addWidget(counter_card)
 
+        # Sync across messages card
+        sync_card = self._make_card("Multi-Message")
+        self.sync_checkbox = QCheckBox("Auswahl auf alle\nMeldungen übertragen")
+        self.sync_checkbox.setStyleSheet(
+            f"QCheckBox {{ color: {COLORS_LIGHT['text']}; font-size: 11px; border: none; }}"
+        )
+        self.sync_checkbox.setToolTip(
+            "Wenn aktiv, wird jede Feldauswahl automatisch auf\n"
+            "das gleiche Feld in allen anderen Meldungen angewendet."
+        )
+        self.sync_checkbox.setChecked(True)
+        sync_card.layout().addWidget(self.sync_checkbox)
+
+        self.sync_status_label = QLabel("")
+        self.sync_status_label.setWordWrap(True)
+        self.sync_status_label.setStyleSheet(
+            f"color: {COLORS_LIGHT['text_muted']}; font-size: 10px; border: none;"
+        )
+        sync_card.layout().addWidget(self.sync_status_label)
+        sidebar_layout.addWidget(sync_card)
+
         # Parse status card
         status_card = self._make_card("Parse Status")
         self.parse_status_label = QLabel("No data")
@@ -417,13 +440,39 @@ class SelectionScreen(QWidget):
         card_layout.addWidget(hdr)
         return card
 
+    def _build_path_index(self):
+        """Build index: path → list of ValueWidgets across all messages."""
+        self._path_index: dict[str, list[ValueWidget]] = {}
+        for vw in self._all_value_widgets:
+            self._path_index.setdefault(vw.path, []).append(vw)
+
+    def _sync_to_others(self, source: ValueWidget):
+        """Propagate source widget's state to matching widgets in other messages."""
+        if not self.sync_checkbox.isChecked():
+            return
+        siblings = self._path_index.get(source.path, [])
+        for vw in siblings:
+            if vw is not source:
+                vw.set_state(source.state)
+
+    def _sync_segment_to_others(self, segment_line: SegmentLineWidget):
+        """Propagate a segment-level toggle to matching segments in other messages."""
+        if not self.sync_checkbox.isChecked():
+            return
+        for vw in segment_line.value_widgets:
+            self._sync_to_others(vw)
+
     def set_parse_result(self, result: ParseResult):
         """Receive parsed data from input screen and render fields."""
         self._parse_result = result
         self._all_value_widgets.clear()
         self._segment_lines.clear()
         self._render()
+        self._build_path_index()
+        if result.is_valid_hl7:
+            self._apply_auto_preselection()
         self._update_counter()
+        self._update_sync_status()
 
     def _render(self):
         """Render the HL7 inline view with clickable fields."""
@@ -479,9 +528,11 @@ class SelectionScreen(QWidget):
                 self.hl7_layout.addWidget(line_w)
                 self._segment_lines.append(line_w)
 
-                line_w.selection_changed.connect(self._update_counter)
+                line_w.selection_changed.connect(
+                    lambda sl=line_w: self._on_segment_toggled(sl)
+                )
                 for vw in line_w.value_widgets:
-                    vw.clicked.connect(self._update_counter)
+                    vw.clicked.connect(lambda v=vw: self._on_value_clicked(v))
                     self._all_value_widgets.append(vw)
 
         # Show non-HL7 lines at the end for single-message case
@@ -492,6 +543,36 @@ class SelectionScreen(QWidget):
 
         self.hl7_layout.addStretch()
         self._update_parse_status()
+
+    def _on_value_clicked(self, vw: ValueWidget):
+        """Handle a single value widget click — sync + update counter."""
+        self._sync_to_others(vw)
+        self._update_counter()
+
+    def _on_segment_toggled(self, segment_line: SegmentLineWidget):
+        """Handle segment-level toggle — sync + update counter."""
+        self._sync_segment_to_others(segment_line)
+        self._update_counter()
+
+    def _update_sync_status(self):
+        """Update the sync card status label with message count info."""
+        r = self._parse_result
+        if r is None or not r.is_valid_hl7 or len(r.messages) < 2:
+            self.sync_status_label.setText("Nur bei mehreren Meldungen relevant.")
+            self.sync_checkbox.setEnabled(False)
+        else:
+            n = len(r.messages)
+            self.sync_status_label.setText(f"{n} Meldungen erkannt.")
+            self.sync_checkbox.setEnabled(True)
+
+    def _apply_auto_preselection(self):
+        """WI-004: Auto-preselect PII fields from Section 4.1 (Amber state).
+        Only applied when valid HL7 is detected. Does not preselect on invalid input.
+        """
+        for vw in self._all_value_widgets:
+            key = (vw.field.segment_name, vw.field.field_index)
+            if key in DEFAULT_PII_FIELDS:
+                vw.set_state(STATE_AUTO)
 
     def _update_counter(self):
         total = len(self._all_value_widgets)
