@@ -3,11 +3,7 @@
 ## IN PROGRESS (WIP: 2)
 
 ## REVIEW
-- [ ] WI-011: Segment Quick-Select (Sidebar)
-- [ ] WI-012: Value-based Selection
-- [ ] WI-013: Search
-- [ ] WI-015: Hover Tooltips
-- [ ] WI-017: Export .txt
+
 ## DONE
 - [x] WI-001: HL7 Parser (best-effort)
 - [x] WI-002: Input-Screen
@@ -16,8 +12,13 @@
 - [x] WI-005: Anonymisierungs-Engine
 - [x] WI-006: Output-Screen
 - [x] WI-007: Maskenzeichen-Setting
+- [x] WI-011: Segment Quick-Select (Sidebar)
+- [x] WI-012: Value-based Selection
+- [x] WI-013: Search
 - [x] WI-014: Apply to all Messages (in WI-004)
+- [x] WI-015: Hover Tooltips
 - [x] WI-016: 4-Farben-Schema (in WI-003)
+- [x] WI-017: Export .txt
 - [x] WI-019: Non-HL7 Inline-Warnung (in WI-003)
 
 ## BACKLOG (Tier 2 — Regex, Config & erweiterte Interaktion)
