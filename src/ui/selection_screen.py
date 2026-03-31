@@ -769,13 +769,36 @@ class SelectionScreen(QWidget):
 
     # --- WI-013: Search ---
 
+    @staticmethod
+    def _match_query(query: str, value: str) -> bool:
+        """Match query against value. Supports * as wildcard."""
+        if "*" in query:
+            # Split by * and check parts appear in order
+            parts = [p for p in query.split("*") if p]
+            pos = 0
+            for part in parts:
+                idx = value.find(part, pos)
+                if idx == -1:
+                    return False
+                pos = idx + len(part)
+            # If query starts with *, match anywhere; otherwise must start at 0
+            if not query.startswith("*") and parts:
+                if not value.startswith(parts[0]):
+                    return False
+            # If query ends with *, allow trailing; otherwise must end with last part
+            if not query.endswith("*") and parts:
+                if not value.endswith(parts[-1]):
+                    return False
+            return True
+        return query in value
+
     def _on_search_changed(self, text: str):
-        """Highlight matching value widgets and update count."""
+        """Highlight matching value widgets and update count. Supports * wildcard."""
         self._search_matches: list[ValueWidget] = []
         query = text.strip().lower()
 
         for vw in self._all_value_widgets:
-            if query and query in vw.value_text.lower():
+            if query and self._match_query(query, vw.value_text.lower()):
                 self._search_matches.append(vw)
                 vw.setStyleSheet(
                     vw.styleSheet().replace("border-radius: 2px;",
