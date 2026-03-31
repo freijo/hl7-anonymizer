@@ -20,8 +20,10 @@ from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QScrollArea,
+    QTabBar,
     QVBoxLayout,
     QWidget,
 )
@@ -49,6 +51,7 @@ class ValueWidget(QLabel):
     """Smallest clickable unit — a single component/subcomponent/repetition value."""
 
     clicked = Signal()
+    double_clicked = Signal()
 
     def __init__(self, text: str, path: str, field: HL7Field, msg_index: int, parent=None):
         super().__init__(parent)
@@ -69,6 +72,11 @@ class ValueWidget(QLabel):
             self.toggle()
             self.clicked.emit()
         super().mousePressEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.double_clicked.emit()
+        super().mouseDoubleClickEvent(event)
 
     def set_state(self, state: str):
         self.state = state
@@ -341,7 +349,82 @@ class SelectionScreen(QWidget):
         content_layout.setContentsMargins(28, 12, 28, 12)
         content_layout.setSpacing(16)
 
-        # LEFT: HL7 inline view (scrollable)
+        # LEFT column
+        left_column = QWidget()
+        left_layout = QVBoxLayout(left_column)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(6)
+
+        # WI-013: Search bar
+        search_row = QWidget()
+        search_layout = QHBoxLayout(search_row)
+        search_layout.setContentsMargins(0, 0, 0, 0)
+        search_layout.setSpacing(6)
+
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Search field values...")
+        self.search_input.setFixedHeight(30)
+        self.search_input.setStyleSheet(f"""
+            QLineEdit {{
+                background: {COLORS_LIGHT['surface']};
+                border: 1px solid {COLORS_LIGHT['border']};
+                border-radius: 4px; padding: 0 8px;
+                color: {COLORS_LIGHT['text']}; font-size: 12px;
+            }}
+            QLineEdit:focus {{ border-color: {COLORS_LIGHT['accent']}; }}
+        """)
+        self.search_input.textChanged.connect(self._on_search_changed)
+        search_layout.addWidget(self.search_input)
+
+        self.search_count_label = QLabel("")
+        self.search_count_label.setStyleSheet(
+            f"color: {COLORS_LIGHT['text_muted']}; font-size: 10px;"
+        )
+        self.search_count_label.setFixedWidth(70)
+        search_layout.addWidget(self.search_count_label)
+
+        self.select_matches_btn = QPushButton("Select matches")
+        self.select_matches_btn.setFixedHeight(30)
+        self.select_matches_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.select_matches_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {COLORS_LIGHT['accent_light']}; color: {COLORS_LIGHT['accent']};
+                border: 1px solid {COLORS_LIGHT['border']}; border-radius: 4px;
+                font-size: 11px; font-weight: 600; padding: 0 10px;
+            }}
+            QPushButton:hover {{
+                background: {COLORS_LIGHT['accent']}; color: white;
+            }}
+            QPushButton:disabled {{
+                background: {COLORS_LIGHT['bg']}; color: {COLORS_LIGHT['text_muted']};
+            }}
+        """)
+        self.select_matches_btn.setEnabled(False)
+        self.select_matches_btn.clicked.connect(self._select_search_matches)
+        search_layout.addWidget(self.select_matches_btn)
+
+        left_layout.addWidget(search_row)
+
+        # WI-010: Message tabs
+        self.msg_tab_bar = QTabBar()
+        self.msg_tab_bar.setStyleSheet(f"""
+            QTabBar::tab {{
+                background: {COLORS_LIGHT['surface']}; color: {COLORS_LIGHT['text_muted']};
+                border: 1px solid {COLORS_LIGHT['border']}; border-bottom: none;
+                border-radius: 4px 4px 0 0; padding: 4px 12px; font-size: 11px;
+                margin-right: 2px;
+            }}
+            QTabBar::tab:selected {{
+                background: {COLORS_LIGHT['surface']}; color: {COLORS_LIGHT['accent']};
+                font-weight: 700; border-bottom: 2px solid {COLORS_LIGHT['accent']};
+            }}
+            QTabBar::tab:hover {{ color: {COLORS_LIGHT['text']}; }}
+        """)
+        self.msg_tab_bar.currentChanged.connect(self._on_tab_changed)
+        self.msg_tab_bar.hide()
+        left_layout.addWidget(self.msg_tab_bar)
+
+        # HL7 inline view (scrollable)
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setStyleSheet(
@@ -356,7 +439,8 @@ class SelectionScreen(QWidget):
         self.hl7_layout.addStretch()
         self.scroll_area.setWidget(self.hl7_container)
 
-        content_layout.addWidget(self.scroll_area, 3)
+        left_layout.addWidget(self.scroll_area, 1)
+        content_layout.addWidget(left_column, 3)
 
         # RIGHT: Sidebar
         sidebar = QWidget()
@@ -508,6 +592,7 @@ class SelectionScreen(QWidget):
         self._build_segment_buttons()
         if result.is_valid_hl7:
             self._apply_auto_preselection()
+        self._build_message_tabs()
         self._update_counter()
         self._update_sync_status()
 
@@ -570,6 +655,7 @@ class SelectionScreen(QWidget):
                 )
                 for vw in line_w.value_widgets:
                     vw.clicked.connect(lambda v=vw: self._on_value_clicked(v))
+                    vw.double_clicked.connect(lambda v=vw: self._select_same_value(v))
                     self._all_value_widgets.append(vw)
 
         # Show non-HL7 lines at the end for single-message case
@@ -617,6 +703,7 @@ class SelectionScreen(QWidget):
         self.sel_count_label.setText(str(selected))
         word = "field" if total == 1 else "fields"
         self.sel_total_label.setText(f"of {total} {word} selected")
+        self._update_tab_badges()
         self._update_selected_list()
 
     def _update_parse_status(self):
@@ -775,6 +862,113 @@ class SelectionScreen(QWidget):
             if vw.path == path:
                 vw.set_state(STATE_NEUTRAL)
         self._update_counter()
+
+    # --- WI-012: Value-based Selection ---
+
+    def _select_same_value(self, source: ValueWidget):
+        """Double-click: select all widgets with the same value text across all messages."""
+        val = source.value_text.lower()
+        if not val.strip():
+            return
+        for vw in self._all_value_widgets:
+            if vw.value_text.lower() == val:
+                vw.set_state(STATE_MANUAL)
+        self._update_counter()
+
+    # --- WI-013: Search ---
+
+    def _on_search_changed(self, text: str):
+        """Highlight matching value widgets and update count."""
+        self._search_matches: list[ValueWidget] = []
+        query = text.strip().lower()
+
+        for vw in self._all_value_widgets:
+            if query and query in vw.value_text.lower():
+                self._search_matches.append(vw)
+                vw.setStyleSheet(
+                    vw.styleSheet().replace("border-radius: 2px;",
+                    f"border-radius: 2px; outline: 2px solid {COLORS_LIGHT['accent']};")
+                )
+            else:
+                # Re-apply normal style
+                vw._apply_style()
+
+        if query:
+            n = len(self._search_matches)
+            self.search_count_label.setText(f"{n} match{'es' if n != 1 else ''}")
+            self.select_matches_btn.setEnabled(n > 0)
+        else:
+            self.search_count_label.setText("")
+            self.select_matches_btn.setEnabled(False)
+
+    def _select_search_matches(self):
+        """WI-013: Select all fields matching the current search."""
+        for vw in self._search_matches:
+            vw.set_state(STATE_MANUAL)
+            if self.sync_checkbox.isChecked():
+                self._sync_to_others(vw)
+        self.search_input.clear()
+        self._update_counter()
+
+    # --- WI-010: Message Tabs ---
+
+    def _build_message_tabs(self):
+        """Build tab bar with one tab per message + 'All' tab."""
+        while self.msg_tab_bar.count():
+            self.msg_tab_bar.removeTab(0)
+
+        r = self._parse_result
+        if r is None or not r.is_valid_hl7 or len(r.messages) < 2:
+            self.msg_tab_bar.hide()
+            return
+
+        self.msg_tab_bar.addTab("All")
+        for i, msg in enumerate(r.messages):
+            selected = sum(
+                1 for vw in self._all_value_widgets
+                if vw.msg_index == i and vw.is_selected()
+            )
+            total = sum(1 for vw in self._all_value_widgets if vw.msg_index == i)
+            self.msg_tab_bar.addTab(f"Msg {i + 1} ({selected}/{total})")
+
+        self.msg_tab_bar.setCurrentIndex(0)
+        self.msg_tab_bar.show()
+
+    def _update_tab_badges(self):
+        """Update selection counts in tab labels."""
+        r = self._parse_result
+        if r is None or not r.is_valid_hl7 or len(r.messages) < 2:
+            return
+
+        for i in range(len(r.messages)):
+            selected = sum(
+                1 for vw in self._all_value_widgets
+                if vw.msg_index == i and vw.is_selected()
+            )
+            total = sum(1 for vw in self._all_value_widgets if vw.msg_index == i)
+            self.msg_tab_bar.setTabText(i + 1, f"Msg {i + 1} ({selected}/{total})")
+
+    def _on_tab_changed(self, index: int):
+        """Show all messages or scroll to a specific one."""
+        # For now, all messages are always visible. Tab switch scrolls to the message.
+        if index <= 0:
+            # "All" tab — scroll to top
+            self.scroll_area.verticalScrollBar().setValue(0)
+            return
+
+        # Find the message header widget and scroll to it
+        msg_idx = index - 1
+        target_line = None
+        seen_msgs = 0
+        for i in range(self.hl7_layout.count()):
+            item = self.hl7_layout.itemAt(i)
+            w = item.widget()
+            if isinstance(w, QLabel) and w.text().startswith(f"Message {msg_idx + 1}"):
+                target_line = w
+                break
+
+        if target_line:
+            self.scroll_area.ensureWidgetVisible(target_line, 0, 50)
 
     def get_selections(self) -> list[tuple[int, str, int, str, str]]:
         """Return list of (msg_index, segment_name, field_index, path, state) for selected values."""
