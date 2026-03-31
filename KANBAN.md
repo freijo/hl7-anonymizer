@@ -9,8 +9,6 @@
 - [ ] WI-013: Search
 - [ ] WI-015: Hover Tooltips
 - [ ] WI-017: Export .txt
-- [ ] WI-018: Sidebar: Selected Fields
-
 ## DONE
 - [x] WI-001: HL7 Parser (best-effort)
 - [x] WI-002: Input-Screen

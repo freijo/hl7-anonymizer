@@ -104,6 +104,9 @@ class ValueWidget(QLabel):
         self.setStyleSheet(
             f"QLabel {{ background: {bg}; border: 1px solid {border}; "
             f"color: {text_color}; padding: 1px 3px; border-radius: 2px; }}"
+            f"QToolTip {{ background: {COLORS_LIGHT['gray_dark']}; "
+            f"color: white; border: 1px solid {COLORS_LIGHT['border']}; "
+            f"padding: 4px 8px; font-size: 12px; }}"
         )
 
 
@@ -509,23 +512,6 @@ class SelectionScreen(QWidget):
         seg_card.layout().addWidget(self.seg_hint_label)
         sidebar_layout.addWidget(seg_card)
 
-        # WI-018: Selected Fields list card
-        selected_card = self._make_card("Selected Fields")
-        self.selected_scroll = QScrollArea()
-        self.selected_scroll.setWidgetResizable(True)
-        self.selected_scroll.setFixedHeight(150)
-        self.selected_scroll.setStyleSheet(
-            f"QScrollArea {{ background: {COLORS_LIGHT['bg']}; border: none; }}"
-        )
-        self.selected_list_widget = QWidget()
-        self.selected_list_layout = QVBoxLayout(self.selected_list_widget)
-        self.selected_list_layout.setContentsMargins(0, 0, 0, 0)
-        self.selected_list_layout.setSpacing(2)
-        self.selected_list_layout.addStretch()
-        self.selected_scroll.setWidget(self.selected_list_widget)
-        selected_card.layout().addWidget(self.selected_scroll)
-        sidebar_layout.addWidget(selected_card)
-
         # Parse status card
         status_card = self._make_card("Parse Status")
         self.parse_status_label = QLabel("No data")
@@ -704,7 +690,6 @@ class SelectionScreen(QWidget):
         word = "field" if total == 1 else "fields"
         self.sel_total_label.setText(f"of {total} {word} selected")
         self._update_tab_badges()
-        self._update_selected_list()
 
     def _update_parse_status(self):
         r = self._parse_result
@@ -789,78 +774,6 @@ class SelectionScreen(QWidget):
             vw.set_state(new_state)
             if self.sync_checkbox.isChecked():
                 self._sync_to_others(vw)
-        self._update_counter()
-
-    def _update_selected_list(self):
-        """WI-018: Rebuild the selected fields list in the sidebar."""
-        # Clear existing entries
-        while self.selected_list_layout.count():
-            item = self.selected_list_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-
-        selected = [vw for vw in self._all_value_widgets if vw.is_selected()]
-
-        if not selected:
-            empty = QLabel("No fields selected.")
-            empty.setStyleSheet(
-                f"color: {COLORS_LIGHT['text_muted']}; font-size: 10px;"
-            )
-            self.selected_list_layout.addWidget(empty)
-            self.selected_list_layout.addStretch()
-            return
-
-        # Group by path to avoid duplicates (multi-message sync)
-        seen_paths: set[str] = set()
-        for vw in selected:
-            if vw.path in seen_paths:
-                continue
-            seen_paths.add(vw.path)
-
-            row = QWidget()
-            row.setStyleSheet("background: none;")
-            row_layout = QHBoxLayout(row)
-            row_layout.setContentsMargins(2, 1, 2, 1)
-            row_layout.setSpacing(4)
-
-            path_label = QLabel(f"{vw.path}")
-            path_label.setStyleSheet(
-                f"color: {COLORS_LIGHT['accent']}; font-size: 10px; font-weight: 600;"
-            )
-            row_layout.addWidget(path_label)
-
-            preview = vw.value_text[:12] + ("..." if len(vw.value_text) > 12 else "")
-            val_label = QLabel(preview)
-            val_label.setStyleSheet(
-                f"color: {COLORS_LIGHT['text_muted']}; font-size: 10px;"
-            )
-            row_layout.addWidget(val_label)
-
-            row_layout.addStretch()
-
-            desel_btn = QPushButton("\u2715")
-            desel_btn.setFixedSize(16, 16)
-            desel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            desel_btn.setStyleSheet(f"""
-                QPushButton {{
-                    background: none; border: none; color: {COLORS_LIGHT['text_muted']};
-                    font-size: 10px; padding: 0;
-                }}
-                QPushButton:hover {{ color: {WARNINGS['non_hl7']['text']}; }}
-            """)
-            desel_btn.setToolTip("Deselect")
-            desel_btn.clicked.connect(lambda checked, p=vw.path: self._deselect_by_path(p))
-            row_layout.addWidget(desel_btn)
-
-            self.selected_list_layout.addWidget(row)
-
-        self.selected_list_layout.addStretch()
-
-    def _deselect_by_path(self, path: str):
-        """Deselect all value widgets with the given path."""
-        for vw in self._all_value_widgets:
-            if vw.path == path:
-                vw.set_state(STATE_NEUTRAL)
         self._update_counter()
 
     # --- WI-012: Value-based Selection ---
