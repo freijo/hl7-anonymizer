@@ -23,7 +23,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QScrollArea,
-    QTabBar,
     QVBoxLayout,
     QWidget,
 )
@@ -408,25 +407,6 @@ class SelectionScreen(QWidget):
 
         left_layout.addWidget(search_row)
 
-        # WI-010: Message tabs
-        self.msg_tab_bar = QTabBar()
-        self.msg_tab_bar.setStyleSheet(f"""
-            QTabBar::tab {{
-                background: {COLORS_LIGHT['surface']}; color: {COLORS_LIGHT['text_muted']};
-                border: 1px solid {COLORS_LIGHT['border']}; border-bottom: none;
-                border-radius: 4px 4px 0 0; padding: 4px 12px; font-size: 11px;
-                margin-right: 2px;
-            }}
-            QTabBar::tab:selected {{
-                background: {COLORS_LIGHT['surface']}; color: {COLORS_LIGHT['accent']};
-                font-weight: 700; border-bottom: 2px solid {COLORS_LIGHT['accent']};
-            }}
-            QTabBar::tab:hover {{ color: {COLORS_LIGHT['text']}; }}
-        """)
-        self.msg_tab_bar.currentChanged.connect(self._on_tab_changed)
-        self.msg_tab_bar.hide()
-        left_layout.addWidget(self.msg_tab_bar)
-
         # HL7 inline view (scrollable)
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
@@ -578,7 +558,6 @@ class SelectionScreen(QWidget):
         self._build_segment_buttons()
         if result.is_valid_hl7:
             self._apply_auto_preselection()
-        self._build_message_tabs()
         self._update_counter()
         self._update_sync_status()
 
@@ -689,7 +668,7 @@ class SelectionScreen(QWidget):
         self.sel_count_label.setText(str(selected))
         word = "field" if total == 1 else "fields"
         self.sel_total_label.setText(f"of {total} {word} selected")
-        self._update_tab_badges()
+
 
     def _update_parse_status(self):
         r = self._parse_result
@@ -822,66 +801,6 @@ class SelectionScreen(QWidget):
                 self._sync_to_others(vw)
         self.search_input.clear()
         self._update_counter()
-
-    # --- WI-010: Message Tabs ---
-
-    def _build_message_tabs(self):
-        """Build tab bar with one tab per message + 'All' tab."""
-        while self.msg_tab_bar.count():
-            self.msg_tab_bar.removeTab(0)
-
-        r = self._parse_result
-        if r is None or not r.is_valid_hl7 or len(r.messages) < 2:
-            self.msg_tab_bar.hide()
-            return
-
-        self.msg_tab_bar.addTab("All")
-        for i, msg in enumerate(r.messages):
-            selected = sum(
-                1 for vw in self._all_value_widgets
-                if vw.msg_index == i and vw.is_selected()
-            )
-            total = sum(1 for vw in self._all_value_widgets if vw.msg_index == i)
-            self.msg_tab_bar.addTab(f"Msg {i + 1} ({selected}/{total})")
-
-        self.msg_tab_bar.setCurrentIndex(0)
-        self.msg_tab_bar.show()
-
-    def _update_tab_badges(self):
-        """Update selection counts in tab labels."""
-        r = self._parse_result
-        if r is None or not r.is_valid_hl7 or len(r.messages) < 2:
-            return
-
-        for i in range(len(r.messages)):
-            selected = sum(
-                1 for vw in self._all_value_widgets
-                if vw.msg_index == i and vw.is_selected()
-            )
-            total = sum(1 for vw in self._all_value_widgets if vw.msg_index == i)
-            self.msg_tab_bar.setTabText(i + 1, f"Msg {i + 1} ({selected}/{total})")
-
-    def _on_tab_changed(self, index: int):
-        """Show all messages or scroll to a specific one."""
-        # For now, all messages are always visible. Tab switch scrolls to the message.
-        if index <= 0:
-            # "All" tab — scroll to top
-            self.scroll_area.verticalScrollBar().setValue(0)
-            return
-
-        # Find the message header widget and scroll to it
-        msg_idx = index - 1
-        target_line = None
-        seen_msgs = 0
-        for i in range(self.hl7_layout.count()):
-            item = self.hl7_layout.itemAt(i)
-            w = item.widget()
-            if isinstance(w, QLabel) and w.text().startswith(f"Message {msg_idx + 1}"):
-                target_line = w
-                break
-
-        if target_line:
-            self.scroll_area.ensureWidgetVisible(target_line, 0, 50)
 
     def get_selections(self) -> list[tuple[int, str, int, str, str]]:
         """Return list of (msg_index, segment_name, field_index, path, state) for selected values."""

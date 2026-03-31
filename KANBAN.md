@@ -3,7 +3,6 @@
 ## IN PROGRESS (WIP: 2)
 
 ## REVIEW
-- [ ] WI-010: Message Tabs
 - [ ] WI-011: Segment Quick-Select (Sidebar)
 - [ ] WI-012: Value-based Selection
 - [ ] WI-013: Search
