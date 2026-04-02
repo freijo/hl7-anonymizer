@@ -20,14 +20,31 @@
 - [x] WI-016: 4-Farben-Schema (in WI-003)
 - [x] WI-017: Export .txt
 - [x] WI-019: Non-HL7 Inline-Warnung (in WI-003)
+- [x] WI-020: Default Regex Patterns
+- [x] WI-021: Custom Regex Editor
+- [x] WI-022: Config File
+- [x] WI-023: Längenstrategie
+- [x] WI-024: Konsistente Pseudonymisierung
+- [x] WI-025: Kontextmenü (Rechtsklick)
+- [x] WI-026: Tastaturnavigation
+- [x] WI-027: Anonymisierungslog
+- [x] WI-028: Settings Reset
 
-## BACKLOG (Tier 2 — Regex, Config & erweiterte Interaktion)
-- [ ] WI-020: Default Regex Patterns
-- [ ] WI-021: Custom Regex Editor
-- [ ] WI-022: Config File
-- [ ] WI-023: Längenstrategie
-- [ ] WI-024: Konsistente Pseudonymisierung
-- [ ] WI-025: Kontextmenü (Rechtsklick)
-- [ ] WI-026: Tastaturnavigation
-- [ ] WI-027: Anonymisierungslog
-- [ ] WI-028: Settings Reset
+## DONE (Tier 3 — LLM-Integration)
+- [x] WI-030: LLM Settings UI
+- [~] WI-031: Embedded NER Model (deferred — Local API covers use case)
+- [x] WI-032: Local API Anbindung
+- [x] WI-033: LLM Analyse Button
+- [x] WI-034: LLM Results als Suggestions
+- [x] WI-035: Remote API Warnung
+- [x] WI-036: LLM Prompt konfigurierbar
+
+## BACKLOG (Tier 4 — Nice-to-have)
+- [ ] WI-040: Dark Mode
+- [ ] WI-041: Anonymisierungsprofile
+- [ ] WI-042: Diff-View
+- [ ] WI-043: Batch File Upload
+- [ ] WI-044: Undo/Redo
+- [ ] WI-045: Config Export/Import
+- [ ] WI-046: Bereichsmarkierung
+- [ ] WI-047: Accessibility

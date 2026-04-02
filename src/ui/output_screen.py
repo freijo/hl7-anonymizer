@@ -118,6 +118,17 @@ class OutputScreen(QWidget):
         """)
         outer.addWidget(self.text_edit, 1)
 
+        # --- WI-027: Anonymization log ---
+        self.log_label = QLabel("")
+        self.log_label.setWordWrap(True)
+        self.log_label.setStyleSheet(
+            f"color: {COLORS_LIGHT['text_muted']}; font-size: 11px; "
+            f"background: {COLORS_LIGHT['surface']}; border: 1px solid {COLORS_LIGHT['border']}; "
+            f"border-radius: 4px; padding: 8px;"
+        )
+        self.log_label.hide()
+        outer.addWidget(self.log_label)
+
         # --- Feedback label (shown briefly after copy) ---
         self.feedback_label = QLabel("")
         self.feedback_label.setAlignment(Qt.AlignmentFlag.AlignRight)
@@ -126,8 +137,11 @@ class OutputScreen(QWidget):
         )
         outer.addWidget(self.feedback_label)
 
-    def set_anonymized_output(self, text: str, field_count: int):
-        """Receive anonymized text and display it."""
+    def set_anonymized_output(
+        self, text: str, field_count: int,
+        msg_count: int = 0, segments: set[str] | None = None, mask: str = "***",
+    ):
+        """Receive anonymized text and display it with log summary."""
         self._field_count = field_count
         self.text_edit.setPlainText(text)
         self.copy_btn.setEnabled(bool(text))
@@ -139,11 +153,20 @@ class OutputScreen(QWidget):
             self.status_label.setStyleSheet(
                 f"color: {WARNINGS['success']['text']}; font-size: 12px; font-weight: 600;"
             )
+            # WI-027: Build log summary
+            seg_list = ", ".join(sorted(segments)) if segments else "—"
+            word_msg = "message" if msg_count == 1 else "messages"
+            self.log_label.setText(
+                f"Log: {field_count} {word} masked across {msg_count} {word_msg} "
+                f"| Segments: {seg_list} | Mask: \"{mask}\""
+            )
+            self.log_label.show()
         else:
             self.status_label.setText("No anonymized data yet.")
             self.status_label.setStyleSheet(
                 f"color: {COLORS_LIGHT['text_muted']}; font-size: 12px;"
             )
+            self.log_label.hide()
 
     def _copy_to_clipboard(self):
         text = self.text_edit.toPlainText()

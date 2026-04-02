@@ -14,18 +14,24 @@ DoD: Click toggles reliably. Counter updates in real-time.
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QCursor, QFont
+from PySide6.QtGui import QAction, QCursor, QFont
 from PySide6.QtWidgets import (
+    QMenu,
     QCheckBox,
     QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
+    QProgressBar,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
     QWidget,
 )
+
+from src.engine.llm_client import LLMConfig
+from src.engine.llm_worker import LLMWorker
 
 from src.config.field_definitions import DEFAULT_PII_FIELDS
 from src.config.field_descriptions import get_field_tooltip
@@ -51,6 +57,7 @@ class ValueWidget(QLabel):
 
     clicked = Signal()
     double_clicked = Signal()
+    context_menu_requested = Signal(object)  # emits self
 
     def __init__(self, text: str, path: str, field: HL7Field, msg_index: int, parent=None):
         super().__init__(parent)
@@ -64,6 +71,9 @@ class ValueWidget(QLabel):
         self.setFont(MONO_FONT)
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.setToolTip(get_field_tooltip(field.segment_name, field.field_index))
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(lambda _: self.context_menu_requested.emit(self))
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._apply_style()
 
     def mousePressEvent(self, event):
@@ -71,6 +81,14 @@ class ValueWidget(QLabel):
             self.toggle()
             self.clicked.emit()
         super().mousePressEvent(event)
+
+    def keyPressEvent(self, event):
+        """WI-026: Keyboard navigation — Space toggles, arrows move focus."""
+        if event.key() == Qt.Key.Key_Space:
+            self.toggle()
+            self.clicked.emit()
+        else:
+            super().keyPressEvent(event)
 
     def mouseDoubleClickEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -407,6 +425,98 @@ class SelectionScreen(QWidget):
 
         left_layout.addWidget(search_row)
 
+        # WI-033: LLM Analyse row
+        llm_row = QWidget()
+        llm_row_layout = QHBoxLayout(llm_row)
+        llm_row_layout.setContentsMargins(0, 0, 0, 0)
+        llm_row_layout.setSpacing(6)
+
+        self.llm_analyze_btn = QPushButton("Analyze with LLM")
+        self.llm_analyze_btn.setFixedHeight(30)
+        self.llm_analyze_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.llm_analyze_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {FIELD_STATES['llm_suggestion']['border']};
+                color: white; border: none; border-radius: 4px;
+                font-size: 12px; font-weight: 700; padding: 0 14px;
+            }}
+            QPushButton:hover {{ background: {FIELD_STATES['llm_suggestion']['text']}; }}
+            QPushButton:disabled {{
+                background: {COLORS_LIGHT['border']}; color: {COLORS_LIGHT['text_muted']};
+            }}
+        """)
+        self.llm_analyze_btn.setEnabled(False)
+        self.llm_analyze_btn.clicked.connect(self._run_llm_analysis)
+        llm_row_layout.addWidget(self.llm_analyze_btn)
+
+        self.llm_cancel_btn = QPushButton("Cancel")
+        self.llm_cancel_btn.setFixedHeight(30)
+        self.llm_cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.llm_cancel_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: none; color: {COLORS_LIGHT['text_muted']};
+                border: 1px solid {COLORS_LIGHT['border']}; border-radius: 4px;
+                font-size: 11px; padding: 0 10px;
+            }}
+            QPushButton:hover {{ color: #c0392b; border-color: #c0392b; }}
+        """)
+        self.llm_cancel_btn.hide()
+        self.llm_cancel_btn.clicked.connect(self._cancel_llm_analysis)
+        llm_row_layout.addWidget(self.llm_cancel_btn)
+
+        self.llm_progress = QProgressBar()
+        self.llm_progress.setFixedHeight(18)
+        self.llm_progress.setStyleSheet(f"""
+            QProgressBar {{
+                background: {COLORS_LIGHT['bg']}; border: 1px solid {COLORS_LIGHT['border']};
+                border-radius: 4px; text-align: center; font-size: 10px;
+                color: {COLORS_LIGHT['text_muted']};
+            }}
+            QProgressBar::chunk {{
+                background: {FIELD_STATES['llm_suggestion']['border']};
+                border-radius: 3px;
+            }}
+        """)
+        self.llm_progress.hide()
+        llm_row_layout.addWidget(self.llm_progress, 1)
+
+        # WI-034: Accept/Dismiss all buttons
+        self.llm_accept_btn = QPushButton("Accept All")
+        self.llm_accept_btn.setFixedHeight(30)
+        self.llm_accept_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.llm_accept_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: #276749; color: white;
+                border: none; border-radius: 4px;
+                font-size: 11px; font-weight: 600; padding: 0 10px;
+            }}
+            QPushButton:hover {{ background: #22543d; }}
+        """)
+        self.llm_accept_btn.hide()
+        self.llm_accept_btn.clicked.connect(self._accept_all_suggestions)
+        llm_row_layout.addWidget(self.llm_accept_btn)
+
+        self.llm_dismiss_btn = QPushButton("Dismiss All")
+        self.llm_dismiss_btn.setFixedHeight(30)
+        self.llm_dismiss_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.llm_dismiss_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: none; color: {COLORS_LIGHT['text_muted']};
+                border: 1px solid {COLORS_LIGHT['border']}; border-radius: 4px;
+                font-size: 11px; padding: 0 10px;
+            }}
+            QPushButton:hover {{ color: #c0392b; border-color: #c0392b; }}
+        """)
+        self.llm_dismiss_btn.hide()
+        self.llm_dismiss_btn.clicked.connect(self._dismiss_all_suggestions)
+        llm_row_layout.addWidget(self.llm_dismiss_btn)
+
+        llm_row_layout.addStretch()
+        left_layout.addWidget(llm_row)
+
+        self._llm_worker: LLMWorker | None = None
+        self._llm_config: LLMConfig | None = None
+
         # HL7 inline view (scrollable)
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
@@ -621,6 +731,7 @@ class SelectionScreen(QWidget):
                 for vw in line_w.value_widgets:
                     vw.clicked.connect(lambda v=vw: self._on_value_clicked(v))
                     vw.double_clicked.connect(lambda v=vw: self._select_same_value(v))
+                    vw.context_menu_requested.connect(self._show_context_menu)
                     self._all_value_widgets.append(vw)
 
         # Show non-HL7 lines at the end for single-message case
@@ -653,14 +764,42 @@ class SelectionScreen(QWidget):
             self.sync_status_label.setText(f"{n} Meldungen erkannt.")
             self.sync_checkbox.setEnabled(True)
 
+    def set_pattern_registry(self, registry):
+        """WI-020: Set the regex pattern registry for auto-detection."""
+        self._pattern_registry = registry
+
+    def set_pii_fields_enabled(self, enabled: bool):
+        """Toggle PII field definition auto-detection."""
+        self._pii_fields_enabled = enabled
+
     def _apply_auto_preselection(self):
         """WI-004: Auto-preselect PII fields from Section 4.1 (Amber state).
-        Only applied when valid HL7 is detected. Does not preselect on invalid input.
+        WI-020: Also auto-select fields matching enabled regex patterns.
+        Both sources are independently toggleable via Settings.
+        Tooltip shows detection source so user can see why a field was selected.
         """
+        pii_enabled = getattr(self, '_pii_fields_enabled', True)
+        registry = getattr(self, '_pattern_registry', None)
         for vw in self._all_value_widgets:
-            key = (vw.field.segment_name, vw.field.field_index)
-            if key in DEFAULT_PII_FIELDS:
+            is_pii = (
+                pii_enabled
+                and (vw.field.segment_name, vw.field.field_index) in DEFAULT_PII_FIELDS
+            )
+            is_regex = (
+                registry is not None
+                and vw.value_text.strip()
+                and registry.matches_any(vw.value_text)
+            )
+            if is_pii or is_regex:
                 vw.set_state(STATE_AUTO)
+                # Show detection source in tooltip
+                base = vw.toolTip()
+                sources = []
+                if is_pii:
+                    sources.append("PII field")
+                if is_regex:
+                    sources.append("Regex match")
+                vw.setToolTip(f"{base}\n[Auto: {', '.join(sources)}]")
 
     def _update_counter(self):
         total = len(self._all_value_widgets)
@@ -830,6 +969,196 @@ class SelectionScreen(QWidget):
             if self.sync_checkbox.isChecked():
                 self._sync_to_others(vw)
         self.search_input.clear()
+        self._update_counter()
+
+    # --- WI-025: Context Menu ---
+
+    def _show_context_menu(self, vw: ValueWidget):
+        """Show right-click context menu for a value widget."""
+        menu = QMenu(self)
+        menu.setStyleSheet(f"""
+            QMenu {{
+                background: {COLORS_LIGHT['surface']}; border: 1px solid {COLORS_LIGHT['border']};
+                padding: 4px; font-size: 12px;
+            }}
+            QMenu::item {{ padding: 4px 20px; color: {COLORS_LIGHT['text']}; }}
+            QMenu::item:selected {{ background: {COLORS_LIGHT['accent_light']}; color: {COLORS_LIGHT['accent']}; }}
+        """)
+
+        # Toggle this field
+        if vw.is_selected():
+            act_toggle = menu.addAction("Deselect this field")
+        else:
+            act_toggle = menu.addAction("Select this field")
+        act_toggle.triggered.connect(lambda: self._ctx_toggle(vw))
+
+        # Select all in segment
+        act_seg = menu.addAction(f"Select all {vw.field.segment_name} fields")
+        act_seg.triggered.connect(lambda: self._ctx_select_segment(vw.field.segment_name))
+
+        # Select same value everywhere
+        if vw.value_text.strip():
+            act_val = menu.addAction(f'Select "{vw.value_text[:20]}" everywhere')
+            act_val.triggered.connect(lambda: self._select_same_value(vw))
+
+        menu.addSeparator()
+
+        # Search for value
+        if vw.value_text.strip():
+            act_search = menu.addAction(f'Search for "{vw.value_text[:20]}"')
+            act_search.triggered.connect(lambda: self.search_input.setText(vw.value_text))
+
+        menu.exec(QCursor.pos())
+
+    def _ctx_toggle(self, vw: ValueWidget):
+        vw.toggle()
+        self._sync_to_others(vw)
+        self._update_counter()
+
+    def _ctx_select_segment(self, seg_name: str):
+        self._toggle_segment_by_name(seg_name)
+
+    # --- WI-033/034/035: LLM Analysis ---
+
+    def _styled_msgbox(self, icon, title: str, text: str,
+                       buttons=QMessageBox.StandardButton.Ok,
+                       default=QMessageBox.StandardButton.Ok) -> QMessageBox.StandardButton:
+        """Show a QMessageBox with explicit styling so text is visible."""
+        box = QMessageBox(icon, title, text, buttons, self)
+        box.setDefaultButton(default)
+        box.setStyleSheet(
+            "QMessageBox { background: #ffffff; }"
+            "QMessageBox QLabel { color: #2d3748; font-size: 13px; }"
+            "QPushButton { background: #0066A1; color: white; border: none; "
+            "border-radius: 4px; padding: 6px 18px; font-size: 12px; font-weight: 600; }"
+            "QPushButton:hover { background: #004d7a; }"
+        )
+        return box.exec()
+
+    def set_llm_config(self, config: LLMConfig):
+        """Receive LLM config from main window."""
+        self._llm_config = config
+        enabled = config.mode != "none" and bool(self._all_value_widgets)
+        self.llm_analyze_btn.setEnabled(enabled)
+
+    def _run_llm_analysis(self):
+        """WI-033: Start LLM analysis of unselected fields in background."""
+        if not self._llm_config or self._llm_config.mode == "none":
+            return
+
+        if not self._llm_config.model_name:
+            self._styled_msgbox(
+                QMessageBox.Icon.Warning, "LLM Configuration",
+                "No model name configured.\n\n"
+                "Go to Step 3 → LLM Analysis → set a model name\n"
+                "(e.g. llama3, mistral, gemma).",
+            )
+            return
+
+        # WI-035: Remote API warning
+        if self._llm_config.is_remote:
+            reply = self._styled_msgbox(
+                QMessageBox.Icon.Warning,
+                "Data Locality Warning",
+                f"Data will be sent to {self._llm_config.base_url}\n\n"
+                "This is not a local endpoint. Patient data will leave this machine.\n"
+                "Continue?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+        # F-LLM-15: Only analyse unselected fields
+        unselected = [
+            vw for vw in self._all_value_widgets
+            if not vw.is_selected() and vw.value_text.strip()
+        ]
+        if not unselected:
+            return
+
+        # Deduplicate by value text
+        seen = set()
+        unique_texts = []
+        for vw in unselected:
+            if vw.value_text not in seen:
+                seen.add(vw.value_text)
+                unique_texts.append(vw.value_text)
+
+        self.llm_analyze_btn.setEnabled(False)
+        self.llm_cancel_btn.show()
+        self.llm_progress.show()
+        self.llm_progress.setMaximum(len(unique_texts))
+        self.llm_progress.setValue(0)
+
+        self._llm_worker = LLMWorker(self._llm_config, unique_texts)
+        self._llm_worker.progress.connect(self._on_llm_progress)
+        self._llm_worker.finished_all.connect(self._on_llm_finished)
+        self._llm_worker.error.connect(self._on_llm_error)
+        self._llm_worker.start()
+
+    def _cancel_llm_analysis(self):
+        if self._llm_worker:
+            self._llm_worker.cancel()
+
+    def _on_llm_progress(self, current: int, total: int):
+        self.llm_progress.setValue(current)
+        self.llm_progress.setFormat(f"{current}/{total}")
+
+    def _on_llm_error(self, message: str):
+        self.llm_progress.hide()
+        self.llm_cancel_btn.hide()
+        self.llm_analyze_btn.setEnabled(True)
+        self._styled_msgbox(QMessageBox.Icon.Warning, "LLM Error", message)
+
+    def _on_llm_finished(self, results: list):
+        """WI-034: Apply LLM results as purple suggestions."""
+        self.llm_progress.hide()
+        self.llm_cancel_btn.hide()
+        self.llm_analyze_btn.setEnabled(True)
+
+        # Collect all entity values found by LLM
+        found_values: set[str] = set()
+        for _text, result in results:
+            if result.ok:
+                for entity in result.entities:
+                    found_values.add(entity.value)
+
+        if not found_values:
+            return
+
+        # Mark matching unselected widgets as LLM suggestions (purple)
+        suggestion_count = 0
+        for vw in self._all_value_widgets:
+            if vw.is_selected():
+                continue
+            if vw.value_text in found_values:
+                vw.set_state(STATE_LLM)
+                suggestion_count += 1
+
+        if suggestion_count > 0:
+            self.llm_accept_btn.show()
+            self.llm_dismiss_btn.show()
+            self._update_counter()
+
+    def _accept_all_suggestions(self):
+        """WI-034: Accept all LLM suggestions → manually selected."""
+        for vw in self._all_value_widgets:
+            if vw.state == STATE_LLM:
+                vw.set_state(STATE_MANUAL)
+                if self.sync_checkbox.isChecked():
+                    self._sync_to_others(vw)
+        self.llm_accept_btn.hide()
+        self.llm_dismiss_btn.hide()
+        self._update_counter()
+
+    def _dismiss_all_suggestions(self):
+        """WI-034: Dismiss all LLM suggestions → neutral."""
+        for vw in self._all_value_widgets:
+            if vw.state == STATE_LLM:
+                vw.set_state(STATE_NEUTRAL)
+        self.llm_accept_btn.hide()
+        self.llm_dismiss_btn.hide()
         self._update_counter()
 
     def get_selections(self) -> list[tuple[int, str, int, str, str]]:

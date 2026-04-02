@@ -21,6 +21,8 @@ def anonymize(
     parse_result: ParseResult,
     selections: set[tuple[int, str]],
     mask: str = "***",
+    length_preserve: bool = False,
+    consistent: bool = False,
 ) -> str:
     """Anonymize selected fields in parsed HL7 messages.
 
@@ -29,6 +31,8 @@ def anonymize(
         selections: Set of (msg_index, path) tuples identifying selected
                     components — same paths as used by ValueWidget in the UI.
         mask: Replacement string for selected values. Default: "***".
+        length_preserve: WI-023 — repeat mask char to match original length.
+        consistent: WI-024 — same original value → same pseudonym.
 
     Returns:
         Anonymized HL7 text with structure preserved.
@@ -36,16 +40,37 @@ def anonymize(
     if not parse_result.is_valid_hl7 or not parse_result.messages:
         return _rebuild_non_hl7(parse_result)
 
+    # WI-024: consistent pseudonymization mapping
+    pseudo_map: dict[str, str] = {} if consistent else {}
+
     output_lines: list[str] = []
 
     for msg_idx, msg in enumerate(parse_result.messages):
         for segment in msg.segments:
             line = _anonymize_segment(
                 segment, msg_idx, msg.encoding_chars, selections, mask,
+                length_preserve=length_preserve,
+                consistent=consistent, pseudo_map=pseudo_map,
             )
             output_lines.append(line)
 
     return "\n".join(output_lines)
+
+
+def _build_mask(mask: str, original: str, length_preserve: bool,
+                 consistent: bool, pseudo_map: dict[str, str]) -> str:
+    """Build the replacement string based on strategy settings."""
+    if consistent:
+        if original in pseudo_map:
+            return pseudo_map[original]
+        idx = len(pseudo_map) + 1
+        pseudonym = f"ANON-{idx}"
+        pseudo_map[original] = pseudonym
+        return pseudonym
+    if length_preserve:
+        ch = mask[0] if mask else "*"
+        return ch * len(original) if original else mask
+    return mask
 
 
 def _anonymize_segment(
@@ -54,6 +79,9 @@ def _anonymize_segment(
     encoding_chars: dict,
     selections: set[tuple[int, str]],
     mask: str,
+    length_preserve: bool = False,
+    consistent: bool = False,
+    pseudo_map: dict[str, str] | None = None,
 ) -> str:
     """Rebuild a segment line, replacing selected components with mask.
 
@@ -88,6 +116,8 @@ def _anonymize_segment(
 
         new_value = _anonymize_field_value(
             field, msg_idx, encoding_chars, selections, mask,
+            length_preserve=length_preserve,
+            consistent=consistent, pseudo_map=pseudo_map,
         )
         if new_value != field.raw_value:
             parts[part_idx] = new_value
@@ -101,16 +131,21 @@ def _anonymize_field_value(
     encoding_chars: dict,
     selections: set[tuple[int, str]],
     mask: str,
+    length_preserve: bool = False,
+    consistent: bool = False,
+    pseudo_map: dict[str, str] | None = None,
 ) -> str:
     """Anonymize a single field value at component granularity.
 
     Replicates the same path-building logic as FieldGroupWidget in the UI
     so that the same (msg_index, path) keys match.
     """
+    pm = pseudo_map if pseudo_map is not None else {}
+
     # MSH.1 / MSH.2 — treat as single selectable unit
     if field.segment_name == "MSH" and field.field_index in (1, 2):
         if (msg_idx, field.path) in selections:
-            return mask
+            return _build_mask(mask, field.raw_value, length_preserve, consistent, pm)
         return field.raw_value
 
     tokens = tokenize_field_value(field.raw_value, encoding_chars)
@@ -153,7 +188,7 @@ def _anonymize_field_value(
                 # Empty components stay empty (F-AO-06)
                 result_parts.append(text)
             elif (msg_idx, path) in selections:
-                result_parts.append(mask)
+                result_parts.append(_build_mask(mask, text, length_preserve, consistent, pm))
             else:
                 result_parts.append(text)
 

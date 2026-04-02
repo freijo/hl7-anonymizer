@@ -218,3 +218,64 @@ class TestEdgeCases:
         # Field should be empty now but structure preserved
         r2 = parse(result)
         assert r2.is_valid_hl7
+
+
+class TestLengthPreserve:
+    """WI-023: Length-preserving mask strategy."""
+
+    def test_length_matches_original(self):
+        r = parse(SINGLE_MSG)
+        result = anonymize(r, {(0, "PID.5.1")}, mask="*", length_preserve=True)
+        pid_line = [l for l in result.split("\n") if l.startswith("PID")][0]
+        # "Müller" is 6 chars → should be "******"
+        assert "******" in pid_line
+        assert "Müller" not in pid_line
+
+    def test_length_preserve_components(self):
+        r = parse(SINGLE_MSG)
+        result = anonymize(
+            r, {(0, "PID.5.1"), (0, "PID.5.2")},
+            mask="#", length_preserve=True,
+        )
+        pid_line = [l for l in result.split("\n") if l.startswith("PID")][0]
+        assert "Müller" not in pid_line
+        assert "Hans" not in pid_line
+        # "Hans" = 4 chars → "####"
+        assert "####" in pid_line
+
+
+class TestConsistentPseudonymization:
+    """WI-024: Same value → same pseudonym across messages."""
+
+    def test_same_value_same_pseudonym(self):
+        # Build two messages with the same patient name
+        msg = (
+            "MSH|^~\\&|A|B|C|D|20240101||ADT^A01|1|P|2.5\r\n"
+            "PID|1||1||Smith^John||19900101|M\r\n"
+            "\r\n"
+            "MSH|^~\\&|A|B|C|D|20240101||ADT^A01|2|P|2.5\r\n"
+            "PID|1||2||Smith^John||19900101|M"
+        )
+        r = parse(msg)
+        result = anonymize(
+            r,
+            {(0, "PID.5.1"), (0, "PID.5.2"), (1, "PID.5.1"), (1, "PID.5.2")},
+            consistent=True,
+        )
+        lines = [l for l in result.split("\n") if l.startswith("PID")]
+        # Both PID lines should have the same pseudonym for "Smith"
+        # Smith → ANON-1 in both messages
+        assert "ANON-1" in lines[0]
+        assert "ANON-1" in lines[1]
+        assert "Smith" not in result
+
+    def test_different_values_different_pseudonyms(self):
+        r = parse(SINGLE_MSG)
+        result = anonymize(
+            r, {(0, "PID.5.1"), (0, "PID.5.2")}, consistent=True,
+        )
+        pid_line = [l for l in result.split("\n") if l.startswith("PID")][0]
+        assert "ANON-1" in pid_line
+        assert "ANON-2" in pid_line
+        assert "Müller" not in pid_line
+        assert "Hans" not in pid_line

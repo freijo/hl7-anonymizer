@@ -129,6 +129,11 @@ class MainWindow(QMainWindow):
         # Initial state
         self._go_step(0)
 
+    def closeEvent(self, event):
+        """WI-022: Save settings on close."""
+        self.settings_screen.save_to_config()
+        super().closeEvent(event)
+
     def _build_header(self) -> QWidget:
         header = QWidget()
         header.setStyleSheet(
@@ -164,8 +169,17 @@ class MainWindow(QMainWindow):
             for i, btn in enumerate(self.step_buttons):
                 btn.set_active(i == index)
 
-            # When navigating to step 2, pass parsed data from input screen
+            # When navigating to step 2, pass parsed data + detection settings
             if index == 1:
+                self.selection_screen.set_pattern_registry(
+                    self.settings_screen.pattern_registry
+                )
+                self.selection_screen.set_pii_fields_enabled(
+                    self.settings_screen.get_pii_fields_enabled()
+                )
+                self.selection_screen.set_llm_config(
+                    self.settings_screen.get_llm_config()
+                )
                 self.selection_screen.set_parse_result(
                     self.input_screen.get_parse_result()
                 )
@@ -182,6 +196,18 @@ class MainWindow(QMainWindow):
         # Build set of (msg_index, path) for the engine
         selections = {(msg_idx, path) for msg_idx, _seg, _fi, path, _state in raw_selections}
 
+        # WI-027: Collect log metadata
+        segments_touched = {seg for _mi, seg, _fi, _p, _s in raw_selections}
+        msg_count = len(parse_result.messages) if parse_result.is_valid_hl7 else 0
+
         mask = self.settings_screen.get_mask()
-        result = anonymize(parse_result, selections, mask=mask)
-        self.output_screen.set_anonymized_output(result, len(selections))
+        length_preserve = self.settings_screen.get_length_preserve()
+        consistent = self.settings_screen.get_consistent()
+        result = anonymize(
+            parse_result, selections, mask=mask,
+            length_preserve=length_preserve, consistent=consistent,
+        )
+        self.output_screen.set_anonymized_output(
+            result, len(selections),
+            msg_count=msg_count, segments=segments_touched, mask=mask,
+        )
