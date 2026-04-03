@@ -14,8 +14,9 @@ DoD: Click toggles reliably. Counter updates in real-time.
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QAction, QCursor, QFont
+from PySide6.QtGui import QAction, QCursor, QFont, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
+    QComboBox,
     QMenu,
     QCheckBox,
     QFrame,
@@ -33,10 +34,13 @@ from PySide6.QtWidgets import (
 from src.engine.llm_client import LLMConfig
 from src.engine.llm_worker import LLMWorker
 
+import json
+
+from src.config.config_file import load_config, save_config
 from src.config.field_definitions import DEFAULT_PII_FIELDS
 from src.config.field_descriptions import get_field_tooltip
 from src.parser.hl7_parser import HL7Field, HL7Message, HL7Segment, ParseResult, tokenize_field_value
-from src.ui.theme import COLORS_LIGHT, FIELD_STATES, WARNINGS
+from src.ui.theme import COLORS_LIGHT, FIELD_STATES, WARNINGS, theme_manager, current_field_states
 
 
 MONO_FONT = QFont("Cascadia Code", 11)
@@ -51,11 +55,20 @@ STATE_AUTO = "auto_detected"
 STATE_MANUAL = "manually_selected"
 STATE_LLM = "llm_suggestion"
 
+# WI-047: Accessibility — symbols alongside colors for colorblind users
+STATE_SYMBOLS = {
+    STATE_AUTO: "\u25C9 ",      # ◉ auto-detected
+    STATE_MANUAL: "\u2713 ",    # ✓ manually selected
+    STATE_LLM: "\u2606 ",       # ☆ LLM suggestion
+    STATE_NEUTRAL: "",           # no symbol
+}
+
 
 class ValueWidget(QLabel):
     """Smallest clickable unit — a single component/subcomponent/repetition value."""
 
     clicked = Signal()
+    shift_clicked = Signal()  # WI-046: range selection
     double_clicked = Signal()
     context_menu_requested = Signal(object)  # emits self
 
@@ -78,14 +91,17 @@ class ValueWidget(QLabel):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            self.toggle()
-            self.clicked.emit()
+            # WI-046: Shift+click emits range signal instead of simple toggle
+            if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                self.shift_clicked.emit()
+            else:
+                # Don't toggle here — let _on_value_clicked handle it after undo snapshot
+                self.clicked.emit()
         super().mousePressEvent(event)
 
     def keyPressEvent(self, event):
         """WI-026: Keyboard navigation — Space toggles, arrows move focus."""
         if event.key() == Qt.Key.Key_Space:
-            self.toggle()
             self.clicked.emit()
         else:
             super().keyPressEvent(event)
@@ -97,6 +113,9 @@ class ValueWidget(QLabel):
 
     def set_state(self, state: str):
         self.state = state
+        # WI-047: Update display text with accessibility symbol
+        symbol = STATE_SYMBOLS.get(state, "")
+        self.setText(f"{symbol}{self.value_text}" if self.value_text else " ")
         self._apply_style()
 
     def toggle(self):
@@ -114,15 +133,16 @@ class ValueWidget(QLabel):
         return self.state in (STATE_AUTO, STATE_MANUAL, STATE_LLM)
 
     def _apply_style(self):
-        s = FIELD_STATES[self.state]
+        c = theme_manager.current_colors()
+        s = current_field_states()[self.state]
         bg = s["background"]
         border = s["border"]
-        text_color = s["text"] or COLORS_LIGHT["text"]
+        text_color = s["text"] or c["text"]
         self.setStyleSheet(
             f"QLabel {{ background: {bg}; border: 1px solid {border}; "
             f"color: {text_color}; padding: 1px 3px; border-radius: 2px; }}"
-            f"QToolTip {{ background: {COLORS_LIGHT['gray_dark']}; "
-            f"color: white; border: 1px solid {COLORS_LIGHT['border']}; "
+            f"QToolTip {{ background: {c['gray_dark']}; "
+            f"color: white; border: 1px solid {c['border']}; "
             f"padding: 4px 8px; font-size: 12px; }}"
         )
 
@@ -322,6 +342,10 @@ class SelectionScreen(QWidget):
         self._parse_result: ParseResult | None = None
         self._all_value_widgets: list[ValueWidget] = []
         self._segment_lines: list[SegmentLineWidget] = []
+        self._last_clicked_widget: ValueWidget | None = None  # WI-046: for range selection
+        self._sidebar_cards: list[QFrame] = []  # for theme refresh
+        self._undo_stack: list[dict[ValueWidget, str]] = []  # WI-044: undo history
+        self._redo_stack: list[dict[ValueWidget, str]] = []  # WI-044: redo history
         self._build_ui()
 
     def _build_ui(self):
@@ -330,38 +354,43 @@ class SelectionScreen(QWidget):
         outer.setSpacing(0)
 
         # --- Legend bar ---
-        legend = QWidget()
-        legend.setStyleSheet(
+        self.legend = QWidget()
+        self.legend.setStyleSheet(
             f"background: {COLORS_LIGHT['surface']}; "
             f"border-bottom: 1px solid {COLORS_LIGHT['border']};"
         )
-        legend_layout = QHBoxLayout(legend)
+        legend_layout = QHBoxLayout(self.legend)
         legend_layout.setContentsMargins(28, 8, 28, 8)
         legend_layout.setSpacing(18)
 
-        bold_label = QLabel("<b>Legend:</b>")
-        bold_label.setStyleSheet(f"color: {COLORS_LIGHT['text']}; font-size: 12px;")
-        legend_layout.addWidget(bold_label)
+        self.legend_title = QLabel("<b>Legend:</b>")
+        self.legend_title.setStyleSheet(f"color: {COLORS_LIGHT['text']}; font-size: 12px;")
+        legend_layout.addWidget(self.legend_title)
+
+        self._legend_labels: list[QLabel] = []
+        self._legend_swatches: list[tuple[QLabel, str]] = []  # (swatch, state_key)
 
         for state_key, label_text in [
-            ("auto_detected", "Auto-detected"),
-            ("manually_selected", "Manually selected"),
-            ("llm_suggestion", "LLM suggestion"),
+            ("auto_detected", "\u25C9 Auto-detected"),
+            ("manually_selected", "\u2713 Manually selected"),
+            ("llm_suggestion", "\u2606 LLM suggestion"),
             ("neutral", "Not selected"),
         ]:
-            s = FIELD_STATES[state_key]
+            s = current_field_states()[state_key]
             swatch = QLabel("  ")
             swatch.setFixedSize(14, 14)
             swatch.setStyleSheet(
-                f"background: {s['background']}; border: 1px solid {s['border']}; border-radius: 2px;"
+                f"QLabel {{ background: {s['background']}; border: 1px solid {s['border']}; border-radius: 2px; }}"
             )
             legend_layout.addWidget(swatch)
+            self._legend_swatches.append((swatch, state_key))
             lbl = QLabel(label_text)
             lbl.setStyleSheet(f"color: {COLORS_LIGHT['text_muted']}; font-size: 11px;")
             legend_layout.addWidget(lbl)
+            self._legend_labels.append(lbl)
 
         legend_layout.addStretch()
-        outer.addWidget(legend)
+        outer.addWidget(self.legend)
 
         # --- Main content: two-column layout ---
         content = QWidget()
@@ -517,6 +546,12 @@ class SelectionScreen(QWidget):
         self._llm_worker: LLMWorker | None = None
         self._llm_config: LLMConfig | None = None
 
+        # WI-044: Undo/Redo shortcuts
+        undo_sc = QShortcut(QKeySequence.StandardKey.Undo, self)
+        undo_sc.activated.connect(self._undo)
+        redo_sc = QShortcut(QKeySequence.StandardKey.Redo, self)
+        redo_sc.activated.connect(self._redo)
+
         # HL7 inline view (scrollable)
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
@@ -544,6 +579,7 @@ class SelectionScreen(QWidget):
 
         # Selection counter card
         counter_card = self._make_card("Selection Summary")
+        self._sidebar_cards.append(counter_card)
         counter_body = QVBoxLayout()
         counter_body.setSpacing(4)
 
@@ -566,6 +602,7 @@ class SelectionScreen(QWidget):
 
         # Sync across messages card
         sync_card = self._make_card("Multi-Message")
+        self._sidebar_cards.append(sync_card)
         self.sync_checkbox = QCheckBox("Auswahl auf alle\nMeldungen übertragen")
         self.sync_checkbox.setStyleSheet(
             f"QCheckBox {{ color: {COLORS_LIGHT['text']}; font-size: 11px; border: none; }}"
@@ -587,6 +624,7 @@ class SelectionScreen(QWidget):
 
         # WI-011: Segment Quick-Select card
         seg_card = self._make_card("Segments")
+        self._sidebar_cards.append(seg_card)
         self.seg_buttons_layout = QHBoxLayout()
         self.seg_buttons_layout.setSpacing(4)
         self.seg_buttons_layout.setContentsMargins(0, 0, 0, 0)
@@ -602,8 +640,78 @@ class SelectionScreen(QWidget):
         seg_card.layout().addWidget(self.seg_hint_label)
         sidebar_layout.addWidget(seg_card)
 
+        # WI-041: Profiles card
+        profile_card = self._make_card("Profiles")
+        self._sidebar_cards.append(profile_card)
+        self.profile_combo = QComboBox()
+        self.profile_combo.setFixedHeight(28)
+        self.profile_combo.setStyleSheet(f"""
+            QComboBox {{
+                background: {COLORS_LIGHT['bg']}; border: 1px solid {COLORS_LIGHT['border']};
+                border-radius: 4px; padding: 0 8px; color: {COLORS_LIGHT['text']}; font-size: 11px;
+            }}
+            QComboBox::drop-down {{ border: none; }}
+            QComboBox QAbstractItemView {{
+                background: {COLORS_LIGHT['surface']}; border: 1px solid {COLORS_LIGHT['border']};
+                color: {COLORS_LIGHT['text']}; selection-background-color: {COLORS_LIGHT['accent_light']};
+            }}
+        """)
+        self._load_profile_list()
+        profile_card.layout().addWidget(self.profile_combo)
+
+        profile_btn_row = QWidget()
+        profile_btn_row.setStyleSheet("border: none;")
+        pbtn_layout = QHBoxLayout(profile_btn_row)
+        pbtn_layout.setContentsMargins(0, 2, 0, 0)
+        pbtn_layout.setSpacing(4)
+
+        prof_btn_style = f"""
+            QPushButton {{
+                background: {COLORS_LIGHT['accent_light']}; color: {COLORS_LIGHT['accent']};
+                border: 1px solid {COLORS_LIGHT['border']}; border-radius: 3px;
+                font-size: 10px; font-weight: 600; padding: 2px 8px;
+            }}
+            QPushButton:hover {{ background: {COLORS_LIGHT['accent']}; color: white; }}
+        """
+        save_prof_btn = QPushButton("Save")
+        save_prof_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        save_prof_btn.setFixedHeight(24)
+        save_prof_btn.setStyleSheet(prof_btn_style)
+        save_prof_btn.clicked.connect(self._save_profile)
+        pbtn_layout.addWidget(save_prof_btn)
+
+        load_prof_btn = QPushButton("Load")
+        load_prof_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        load_prof_btn.setFixedHeight(24)
+        load_prof_btn.setStyleSheet(prof_btn_style)
+        load_prof_btn.clicked.connect(self._load_profile)
+        pbtn_layout.addWidget(load_prof_btn)
+
+        del_prof_btn = QPushButton("Del")
+        del_prof_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        del_prof_btn.setFixedHeight(24)
+        del_prof_btn.setStyleSheet(prof_btn_style)
+        del_prof_btn.clicked.connect(self._delete_profile)
+        pbtn_layout.addWidget(del_prof_btn)
+
+        pbtn_layout.addStretch()
+        profile_card.layout().addWidget(profile_btn_row)
+
+        self.profile_name_input = QLineEdit()
+        self.profile_name_input.setPlaceholderText("New profile name...")
+        self.profile_name_input.setFixedHeight(24)
+        self.profile_name_input.setStyleSheet(f"""
+            QLineEdit {{
+                background: {COLORS_LIGHT['bg']}; border: 1px solid {COLORS_LIGHT['border']};
+                border-radius: 3px; padding: 0 6px; color: {COLORS_LIGHT['text']}; font-size: 10px;
+            }}
+        """)
+        profile_card.layout().addWidget(self.profile_name_input)
+        sidebar_layout.addWidget(profile_card)
+
         # Parse status card
         status_card = self._make_card("Parse Status")
+        self._sidebar_cards.append(status_card)
         self.parse_status_label = QLabel("No data")
         self.parse_status_label.setWordWrap(True)
         self.parse_status_label.setStyleSheet(
@@ -617,6 +725,8 @@ class SelectionScreen(QWidget):
 
         outer.addWidget(content, 1)
 
+    _card_headers: list[QLabel] = []
+
     def _make_card(self, title: str) -> QFrame:
         card = QFrame()
         card.setStyleSheet(
@@ -629,11 +739,14 @@ class SelectionScreen(QWidget):
 
         hdr = QLabel(title)
         hdr.setStyleSheet(
-            f"color: {COLORS_LIGHT['text']}; font-size: 12px; font-weight: 700; "
+            f"QLabel {{ color: {COLORS_LIGHT['text']}; font-size: 12px; font-weight: 700; "
             f"border: none; border-bottom: 1px solid {COLORS_LIGHT['border']}; "
-            f"padding-bottom: 6px;"
+            f"padding-bottom: 6px; }}"
         )
         card_layout.addWidget(hdr)
+        if not hasattr(self, '_card_headers_list'):
+            self._card_headers_list = []
+        self._card_headers_list.append(hdr)
         return card
 
     def _build_path_index(self):
@@ -730,6 +843,7 @@ class SelectionScreen(QWidget):
                 )
                 for vw in line_w.value_widgets:
                     vw.clicked.connect(lambda v=vw: self._on_value_clicked(v))
+                    vw.shift_clicked.connect(lambda v=vw: self._on_shift_click(v))
                     vw.double_clicked.connect(lambda v=vw: self._select_same_value(v))
                     vw.context_menu_requested.connect(self._show_context_menu)
                     self._all_value_widgets.append(vw)
@@ -744,12 +858,39 @@ class SelectionScreen(QWidget):
         self._update_parse_status()
 
     def _on_value_clicked(self, vw: ValueWidget):
-        """Handle a single value widget click — sync + update counter."""
+        """Handle a single value widget click — snapshot, toggle, sync, update."""
+        self._save_undo_snapshot()
+        vw.toggle()
+        self._last_clicked_widget = vw
         self._sync_to_others(vw)
+        self._update_counter()
+
+    def _on_shift_click(self, vw: ValueWidget):
+        """WI-046: Shift+click selects range from last clicked to this widget."""
+        if self._last_clicked_widget is None:
+            vw.toggle()
+            vw.clicked.emit()
+            return
+        self._save_undo_snapshot()
+        try:
+            idx_start = self._all_value_widgets.index(self._last_clicked_widget)
+            idx_end = self._all_value_widgets.index(vw)
+        except ValueError:
+            vw.toggle()
+            vw.clicked.emit()
+            return
+        lo, hi = min(idx_start, idx_end), max(idx_start, idx_end)
+        for i in range(lo, hi + 1):
+            w = self._all_value_widgets[i]
+            w.set_state(STATE_MANUAL)
+            if self.sync_checkbox.isChecked():
+                self._sync_to_others(w)
+        self._last_clicked_widget = vw
         self._update_counter()
 
     def _on_segment_toggled(self, segment_line: SegmentLineWidget):
         """Handle segment-level toggle — sync + update counter."""
+        self._save_undo_snapshot()
         self._sync_segment_to_others(segment_line)
         self._update_counter()
 
@@ -941,14 +1082,15 @@ class SelectionScreen(QWidget):
                 self._search_matches.append(vw)
                 vw._apply_style()
                 # Override border to highlight match
-                s = FIELD_STATES[vw.state]
+                clr = theme_manager.current_colors()
+                s = current_field_states()[vw.state]
                 bg = s["background"]
-                text_color = s["text"] or COLORS_LIGHT["text"]
+                text_color = s["text"] or clr["text"]
                 vw.setStyleSheet(
-                    f"QLabel {{ background: {bg}; border: 2px solid {COLORS_LIGHT['accent']}; "
+                    f"QLabel {{ background: {bg}; border: 2px solid {clr['accent']}; "
                     f"color: {text_color}; padding: 1px 3px; border-radius: 2px; }}"
-                    f"QToolTip {{ background: {COLORS_LIGHT['gray_dark']}; "
-                    f"color: white; border: 1px solid {COLORS_LIGHT['border']}; "
+                    f"QToolTip {{ background: {clr['gray_dark']}; "
+                    f"color: white; border: 1px solid {clr['border']}; "
                     f"padding: 4px 8px; font-size: 12px; }}"
                 )
             else:
@@ -1160,6 +1302,234 @@ class SelectionScreen(QWidget):
         self.llm_accept_btn.hide()
         self.llm_dismiss_btn.hide()
         self._update_counter()
+
+    # --- WI-041: Profiles ---
+
+    def _load_profile_list(self):
+        """Populate the profile combo from config."""
+        self.profile_combo.clear()
+        cfg = load_config()
+        profiles = cfg.get("profiles", {})
+        for name in sorted(profiles.keys()):
+            self.profile_combo.addItem(name)
+
+    def _save_profile(self):
+        """Save current field selections as a named profile."""
+        name = self.profile_name_input.text().strip()
+        if not name:
+            name = self.profile_combo.currentText()
+        if not name:
+            return
+        # Store selected paths as profile data
+        selected_paths = [vw.path for vw in self._all_value_widgets if vw.is_selected()]
+        cfg = load_config()
+        profiles = cfg.get("profiles", {})
+        profiles[name] = selected_paths
+        cfg["profiles"] = profiles
+        save_config(cfg)
+        self.profile_name_input.clear()
+        self._load_profile_list()
+        # Select the saved profile
+        idx = self.profile_combo.findText(name)
+        if idx >= 0:
+            self.profile_combo.setCurrentIndex(idx)
+
+    def _load_profile(self):
+        """Load a named profile and apply field selections."""
+        name = self.profile_combo.currentText()
+        if not name:
+            return
+        cfg = load_config()
+        profiles = cfg.get("profiles", {})
+        paths = set(profiles.get(name, []))
+        if not paths:
+            return
+        self._save_undo_snapshot()
+        for vw in self._all_value_widgets:
+            if vw.path in paths:
+                vw.set_state(STATE_MANUAL)
+            else:
+                vw.set_state(STATE_NEUTRAL)
+        self._update_counter()
+
+    def _delete_profile(self):
+        """Delete the selected profile."""
+        name = self.profile_combo.currentText()
+        if not name:
+            return
+        cfg = load_config()
+        profiles = cfg.get("profiles", {})
+        profiles.pop(name, None)
+        cfg["profiles"] = profiles
+        save_config(cfg)
+        self._load_profile_list()
+
+    # --- WI-044: Undo / Redo ---
+
+    def _save_undo_snapshot(self):
+        """Capture current state of all widgets for undo."""
+        snapshot = {vw: vw.state for vw in self._all_value_widgets}
+        self._undo_stack.append(snapshot)
+        self._redo_stack.clear()
+        # Limit stack depth
+        if len(self._undo_stack) > 50:
+            self._undo_stack.pop(0)
+
+    def _restore_snapshot(self, snapshot: dict):
+        """Restore widget states from a snapshot."""
+        for vw, state in snapshot.items():
+            vw.set_state(state)
+        self._update_counter()
+
+    def _undo(self):
+        if not self._undo_stack:
+            return
+        # Save current state to redo
+        current = {vw: vw.state for vw in self._all_value_widgets}
+        self._redo_stack.append(current)
+        snapshot = self._undo_stack.pop()
+        self._restore_snapshot(snapshot)
+
+    def _redo(self):
+        if not self._redo_stack:
+            return
+        # Save current state to undo
+        current = {vw: vw.state for vw in self._all_value_widgets}
+        self._undo_stack.append(current)
+        snapshot = self._redo_stack.pop()
+        self._restore_snapshot(snapshot)
+
+    def refresh_theme(self):
+        """WI-040: Re-apply all inline stylesheets with current theme colors."""
+        c = theme_manager.current_colors()
+
+        # Legend bar
+        self.legend.setStyleSheet(
+            f"background: {c['surface']}; border-bottom: 1px solid {c['border']};"
+        )
+        self.legend_title.setStyleSheet(f"color: {c['text']}; font-size: 12px;")
+        for lbl in self._legend_labels:
+            lbl.setStyleSheet(f"color: {c['text_muted']}; font-size: 11px;")
+
+        # Legend swatches
+        fs = current_field_states()
+        for swatch, state_key in self._legend_swatches:
+            s = fs[state_key]
+            swatch.setStyleSheet(
+                f"QLabel {{ background: {s['background']}; border: 1px solid {s['border']}; border-radius: 2px; }}"
+            )
+
+        # Re-apply field widget styles (value widgets use current_field_states dynamically)
+        for vw in self._all_value_widgets:
+            vw._apply_style()
+
+        # Search input
+        self.search_input.setStyleSheet(f"""
+            QLineEdit {{
+                background: {c['surface']}; border: 1px solid {c['border']};
+                border-radius: 4px; padding: 0 8px;
+                color: {c['text']}; font-size: 12px;
+            }}
+            QLineEdit:focus {{ border-color: {c['accent']}; }}
+        """)
+        self.search_count_label.setStyleSheet(f"color: {c['text_muted']}; font-size: 10px;")
+        self.select_matches_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {c['accent_light']}; color: {c['accent']};
+                border: 1px solid {c['border']}; border-radius: 4px;
+                font-size: 11px; font-weight: 600; padding: 0 10px;
+            }}
+            QPushButton:hover {{ background: {c['accent']}; color: white; }}
+            QPushButton:disabled {{ background: {c['bg']}; color: {c['text_muted']}; }}
+        """)
+
+        # Scroll area + HL7 container
+        self.scroll_area.setStyleSheet(
+            f"QScrollArea {{ background: {c['surface']}; "
+            f"border: 1px solid {c['border']}; border-radius: 6px; }}"
+        )
+        self.hl7_container.setStyleSheet(f"background: {c['surface']};")
+
+        # Separator labels in segments
+        for seg_line in self._segment_lines:
+            seg_line.seg_label.setStyleSheet(
+                f"color: {c['accent']}; font-weight: 700; padding: 1px 2px; background: none;"
+            )
+
+        # Sidebar cards
+        for card in self._sidebar_cards:
+            card.setStyleSheet(
+                f"QFrame {{ background: {c['surface']}; "
+                f"border: 1px solid {c['border']}; border-radius: 6px; }}"
+            )
+        # Card headers
+        for hdr in getattr(self, '_card_headers_list', []):
+            hdr.setStyleSheet(
+                f"QLabel {{ color: {c['text']}; font-size: 12px; font-weight: 700; "
+                f"border: none; border-bottom: 1px solid {c['border']}; "
+                f"padding-bottom: 6px; }}"
+            )
+
+        # Sidebar labels
+        self.sel_count_label.setStyleSheet(
+            f"color: {c['accent']}; font-size: 28px; font-weight: 700;"
+        )
+        self.sel_total_label.setStyleSheet(
+            f"color: {c['text_muted']}; font-size: 11px;"
+        )
+        self.sync_checkbox.setStyleSheet(
+            f"QCheckBox {{ color: {c['text']}; font-size: 11px; border: none; }}"
+        )
+        self.sync_status_label.setStyleSheet(
+            f"color: {c['text_muted']}; font-size: 10px; border: none;"
+        )
+        self.seg_hint_label.setStyleSheet(
+            f"color: {c['text_muted']}; font-size: 10px; border: none;"
+        )
+        self.parse_status_label.setStyleSheet(
+            f"color: {c['text_muted']}; font-size: 11px; border: none;"
+        )
+
+        # Profile widgets
+        self.profile_combo.setStyleSheet(f"""
+            QComboBox {{
+                background: {c['bg']}; border: 1px solid {c['border']};
+                border-radius: 4px; padding: 0 8px; color: {c['text']}; font-size: 11px;
+            }}
+            QComboBox::drop-down {{ border: none; }}
+            QComboBox QAbstractItemView {{
+                background: {c['surface']}; border: 1px solid {c['border']};
+                color: {c['text']}; selection-background-color: {c['accent_light']};
+            }}
+        """)
+        self.profile_name_input.setStyleSheet(f"""
+            QLineEdit {{
+                background: {c['bg']}; border: 1px solid {c['border']};
+                border-radius: 3px; padding: 0 6px; color: {c['text']}; font-size: 10px;
+            }}
+        """)
+
+        # LLM row buttons
+        self.llm_analyze_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {FIELD_STATES['llm_suggestion']['border']};
+                color: white; border: none; border-radius: 4px;
+                font-size: 12px; font-weight: 700; padding: 0 14px;
+            }}
+            QPushButton:hover {{ background: {FIELD_STATES['llm_suggestion']['text']}; }}
+            QPushButton:disabled {{ background: {c['border']}; color: {c['text_muted']}; }}
+        """)
+        self.llm_progress.setStyleSheet(f"""
+            QProgressBar {{
+                background: {c['bg']}; border: 1px solid {c['border']};
+                border-radius: 4px; text-align: center; font-size: 10px;
+                color: {c['text_muted']};
+            }}
+            QProgressBar::chunk {{
+                background: {FIELD_STATES['llm_suggestion']['border']};
+                border-radius: 3px;
+            }}
+        """)
 
     def get_selections(self) -> list[tuple[int, str, int, str, str]]:
         """Return list of (msg_index, segment_name, field_index, path, state) for selected values."""

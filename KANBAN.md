@@ -39,12 +39,12 @@
 - [x] WI-035: Remote API Warnung
 - [x] WI-036: LLM Prompt konfigurierbar
 
-## BACKLOG (Tier 4 — Nice-to-have)
-- [ ] WI-040: Dark Mode
-- [ ] WI-041: Anonymisierungsprofile
-- [ ] WI-042: Diff-View
-- [ ] WI-043: Batch File Upload
-- [ ] WI-044: Undo/Redo
-- [ ] WI-045: Config Export/Import
-- [ ] WI-046: Bereichsmarkierung
-- [ ] WI-047: Accessibility
+## DONE (Tier 4 — Nice-to-have)
+- [x] WI-040: Dark Mode
+- [x] WI-041: Anonymisierungsprofile
+- [x] WI-042: Diff-View
+- [x] WI-043: Batch File Upload
+- [x] WI-044: Undo/Redo
+- [x] WI-045: Config Export/Import
+- [x] WI-046: Bereichsmarkierung
+- [x] WI-047: Accessibility

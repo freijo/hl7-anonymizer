@@ -17,7 +17,7 @@ from src.ui.input_screen import InputScreen
 from src.ui.selection_screen import SelectionScreen
 from src.ui.settings_screen import SettingsScreen
 from src.ui.output_screen import OutputScreen
-from src.ui.theme import COLORS_LIGHT
+from src.ui.theme import COLORS_LIGHT, COLORS_DARK, theme_manager
 
 
 STEPS = [
@@ -87,13 +87,13 @@ class MainWindow(QMainWindow):
         layout.setSpacing(0)
 
         # --- Header ---
-        header = self._build_header()
-        layout.addWidget(header)
+        self.header = self._build_header()
+        layout.addWidget(self.header)
 
         # --- Step navigation ---
-        nav_bar = QWidget()
-        nav_bar.setStyleSheet(f"background: {COLORS_LIGHT['surface']}; border-bottom: 1px solid {COLORS_LIGHT['border']};")
-        nav_layout = QHBoxLayout(nav_bar)
+        self.nav_bar = QWidget()
+        self.nav_bar.setStyleSheet(f"background: {COLORS_LIGHT['surface']}; border-bottom: 1px solid {COLORS_LIGHT['border']};")
+        nav_layout = QHBoxLayout(self.nav_bar)
         nav_layout.setContentsMargins(28, 0, 28, 0)
         nav_layout.setSpacing(0)
 
@@ -104,7 +104,7 @@ class MainWindow(QMainWindow):
             nav_layout.addWidget(btn)
             self.step_buttons.append(btn)
         nav_layout.addStretch()
-        layout.addWidget(nav_bar)
+        layout.addWidget(self.nav_bar)
 
         # --- Content stack ---
         self.stack = QStackedWidget()
@@ -143,14 +143,14 @@ class MainWindow(QMainWindow):
         h_layout = QHBoxLayout(header)
         h_layout.setContentsMargins(28, 10, 28, 10)
 
-        title = QLabel("HL7 Anonymizer")
-        title.setFont(QFont("Segoe UI", 14, QFont.Weight.DemiBold))
-        title.setStyleSheet(f"color: {COLORS_LIGHT['text']}; border: none;")
-        h_layout.addWidget(title)
+        self.header_title = QLabel("HL7 Anonymizer")
+        self.header_title.setFont(QFont("Segoe UI", 14, QFont.Weight.DemiBold))
+        self.header_title.setStyleSheet(f"color: {COLORS_LIGHT['text']}; border: none;")
+        h_layout.addWidget(self.header_title)
 
-        subtitle = QLabel("Anonymize personal data in HL7 v2.x messages")
-        subtitle.setStyleSheet(f"color: {COLORS_LIGHT['text_muted']}; font-size: 11px; border: none;")
-        h_layout.addWidget(subtitle)
+        self.header_subtitle = QLabel("Anonymize personal data in HL7 v2.x messages")
+        self.header_subtitle.setStyleSheet(f"color: {COLORS_LIGHT['text_muted']}; font-size: 11px; border: none;")
+        h_layout.addWidget(self.header_subtitle)
 
         h_layout.addStretch()
 
@@ -161,7 +161,96 @@ class MainWindow(QMainWindow):
         )
         h_layout.addWidget(version)
 
+        # WI-040: Dark Mode toggle
+        self.theme_btn = QPushButton("\u263E")  # ☾ moon
+        self.theme_btn.setFixedSize(36, 36)
+        self.theme_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.theme_btn.setToolTip("Toggle Dark Mode")
+        self.theme_btn.setStyleSheet(
+            "QPushButton { background: none; border: 1px solid #d2d8e2; "
+            "border-radius: 4px; font-size: 16px; color: #2d3748; }"
+            "QPushButton:hover { background: #edf0f5; }"
+        )
+        self.theme_btn.clicked.connect(self._toggle_theme)
+        h_layout.addWidget(self.theme_btn)
+
         return header
+
+    def _toggle_theme(self):
+        """WI-040: Toggle between light and dark mode by re-applying stylesheets."""
+        from PySide6.QtGui import QColor, QPalette
+        from PySide6.QtWidgets import QApplication
+        theme_manager.toggle()
+        c = theme_manager.current_colors()
+        is_dark = theme_manager.is_dark()
+
+        if is_dark:
+            self.theme_btn.setText("\u2600")  # ☀ sun
+            self.theme_btn.setToolTip("Toggle Light Mode")
+        else:
+            self.theme_btn.setText("\u263E")  # ☾ moon
+            self.theme_btn.setToolTip("Toggle Dark Mode")
+
+        # Update QPalette for default widget colors
+        palette = QPalette()
+        palette.setColor(QPalette.ColorRole.Window, QColor(c['bg']))
+        palette.setColor(QPalette.ColorRole.WindowText, QColor(c['text']))
+        palette.setColor(QPalette.ColorRole.Base, QColor(c['surface']))
+        palette.setColor(QPalette.ColorRole.AlternateBase, QColor(c['panel']))
+        palette.setColor(QPalette.ColorRole.Text, QColor(c['text']))
+        palette.setColor(QPalette.ColorRole.Button, QColor(c['surface']))
+        palette.setColor(QPalette.ColorRole.ButtonText, QColor(c['text']))
+        palette.setColor(QPalette.ColorRole.Highlight, QColor(c['accent']))
+        palette.setColor(QPalette.ColorRole.HighlightedText, QColor('#ffffff'))
+        palette.setColor(QPalette.ColorRole.ToolTipBase, QColor(c['surface']))
+        palette.setColor(QPalette.ColorRole.ToolTipText, QColor(c['text']))
+        palette.setColor(QPalette.ColorRole.PlaceholderText, QColor(c['text_muted']))
+        QApplication.instance().setPalette(palette)
+
+        # Force-update structural widgets that have inline stylesheets
+        self.header.setStyleSheet(
+            f"background: {c['surface']}; border-bottom: 3px solid {c['accent']};"
+        )
+        self.header_title.setStyleSheet(f"color: {c['text']}; border: none;")
+        self.header_subtitle.setStyleSheet(f"color: {c['text_muted']}; font-size: 11px; border: none;")
+        self.nav_bar.setStyleSheet(
+            f"background: {c['surface']}; border-bottom: 1px solid {c['border']};"
+        )
+        self.stack.setStyleSheet(f"background: {c['bg']};")
+        self.theme_btn.setStyleSheet(
+            f"QPushButton {{ background: none; border: 1px solid {c['border']}; "
+            f"border-radius: 4px; font-size: 16px; color: {c['text']}; }}"
+            f"QPushButton:hover {{ background: {c['panel']}; }}"
+        )
+
+        # Update step buttons
+        for i, btn in enumerate(self.step_buttons):
+            active = btn.isChecked()
+            if active:
+                btn.setStyleSheet(f"""
+                    QPushButton {{
+                        background: none; border: none; border-bottom: 3px solid {c['accent']};
+                        color: {c['accent']}; font-weight: 700; font-size: 13px;
+                        padding: 0 20px;
+                    }}
+                """)
+            else:
+                btn.setStyleSheet(f"""
+                    QPushButton {{
+                        background: none; border: none; border-bottom: 3px solid transparent;
+                        color: {c['text_muted']}; font-weight: 500; font-size: 13px;
+                        padding: 0 20px;
+                    }}
+                    QPushButton:hover {{
+                        color: {c['text']}; background: {c['panel']};
+                    }}
+                """)
+
+        # Refresh child screens
+        self.settings_screen.refresh_theme()
+        self.input_screen.refresh_theme()
+        self.selection_screen.refresh_theme()
+        self.output_screen.refresh_theme()
 
     def _go_step(self, index: int):
         if 0 <= index < self.stack.count():
@@ -199,6 +288,9 @@ class MainWindow(QMainWindow):
         # WI-027: Collect log metadata
         segments_touched = {seg for _mi, seg, _fi, _p, _s in raw_selections}
         msg_count = len(parse_result.messages) if parse_result.is_valid_hl7 else 0
+
+        # WI-042: Pass original text for diff view
+        self.output_screen.set_original_text(self.input_screen.text_edit.toPlainText())
 
         mask = self.settings_screen.get_mask()
         length_preserve = self.settings_screen.get_length_preserve()

@@ -1,5 +1,28 @@
 """Design System & Color Scheme from Requirements Section 2."""
 
+from __future__ import annotations
+
+
+# WI-040: Theme manager — singleton that tracks current mode
+class _ThemeManager:
+    """Global theme state. Screens read `current_colors()` at build time."""
+
+    def __init__(self):
+        self.mode: str = "light"  # "light" | "dark"
+
+    def current_colors(self) -> dict[str, str]:
+        return COLORS_DARK if self.mode == "dark" else COLORS_LIGHT
+
+    def toggle(self):
+        self.mode = "dark" if self.mode == "light" else "light"
+
+    def is_dark(self) -> bool:
+        return self.mode == "dark"
+
+
+theme_manager = _ThemeManager()
+
+
 # 2.1 Base colors (from HL7_ADT_Doku)
 COLORS_LIGHT = {
     "accent": "#0066A1",
@@ -17,22 +40,22 @@ COLORS_LIGHT = {
 }
 
 COLORS_DARK = {
-    "accent": "#4da6d9",
-    "accent_hover": "#6dbde6",
-    "accent_light": "#1a2d3d",
-    "text": "#e2e8f0",
-    "text_muted": "#a0aec0",
-    "bg": "#0f1117",
-    "surface": "#171923",
-    "panel": "#1e2130",
-    "border": "#2d3748",
-    "gray_dark": "#2d3748",
-    "action_bg": "#276749",
-    "action_hover": "#22543d",
+    "accent": "#5bafde",
+    "accent_hover": "#7cc4ea",
+    "accent_light": "#1e3347",
+    "text": "#dce4ec",
+    "text_muted": "#8fa3b8",
+    "bg": "#1a1d27",
+    "surface": "#232735",
+    "panel": "#2a2f3e",
+    "border": "#3b4255",
+    "gray_dark": "#3b4255",
+    "action_bg": "#2e7d56",
+    "action_hover": "#28684a",
 }
 
 # 2.2 Field selection states
-FIELD_STATES = {
+FIELD_STATES_LIGHT = {
     "auto_detected": {
         "background": "#fef9e7",
         "border": "#e6c84d",
@@ -51,9 +74,41 @@ FIELD_STATES = {
     "neutral": {
         "background": "#ffffff",
         "border": "#e8ecf1",
-        "text": None,  # uses COLORS_LIGHT["text"] / COLORS_DARK["text"]
+        "text": None,
     },
 }
+
+FIELD_STATES_DARK = {
+    "auto_detected": {
+        "background": "#3a3420",
+        "border": "#c9a830",
+        "text": "#f0d060",
+    },
+    "manually_selected": {
+        "background": "#3a2020",
+        "border": "#e05555",
+        "text": "#f09090",
+    },
+    "llm_suggestion": {
+        "background": "#2e2540",
+        "border": "#9a85c8",
+        "text": "#c8b0f0",
+    },
+    "neutral": {
+        "background": "#232735",
+        "border": "#3b4255",
+        "text": None,
+    },
+}
+
+
+def current_field_states() -> dict:
+    """Return the field states matching the current theme."""
+    return FIELD_STATES_DARK if theme_manager.is_dark() else FIELD_STATES_LIGHT
+
+
+# Backwards compat alias — existing code that reads FIELD_STATES at import time
+FIELD_STATES = FIELD_STATES_LIGHT
 
 # 2.3 Warning colors
 WARNINGS = {

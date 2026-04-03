@@ -4,6 +4,8 @@ Textarea for pasting HL7 messages, message counter, non-HL7 warning.
 DoD: Works with 0, 1, and 10+ messages.
 """
 
+from pathlib import Path
+
 from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
@@ -16,7 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.parser.hl7_parser import ParseResult, parse
-from src.ui.theme import COLORS_LIGHT, WARNINGS
+from src.ui.theme import COLORS_LIGHT, WARNINGS, theme_manager
 
 
 MONO_FONT = QFont("Cascadia Code", 11)
@@ -64,6 +66,10 @@ class InputScreen(QWidget):
         self.text_edit.setMinimumHeight(220)
         self.text_edit.textChanged.connect(self._on_text_changed)
         layout.addWidget(self.text_edit, 1)
+
+        # WI-043: Enable drag & drop on parent, disable on QTextEdit so drops fall through
+        self.setAcceptDrops(True)
+        self.text_edit.setAcceptDrops(False)
 
         # --- Warning banner (hidden by default) ---
         self.warn_banner = QWidget()
@@ -298,6 +304,55 @@ class InputScreen(QWidget):
         self._warn_expanded = not self._warn_expanded
         self.warn_detail_list.setVisible(self._warn_expanded)
         self.warn_toggle_btn.setText("Show less" if self._warn_expanded else "Show all")
+
+    # WI-043: Drag & Drop file support
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        files = [u.toLocalFile() for u in event.mimeData().urls()]
+        texts = []
+        for f in files:
+            p = Path(f)
+            if p.suffix.lower() in (".hl7", ".txt", ".msg", ""):
+                try:
+                    texts.append(p.read_text(encoding="utf-8", errors="replace"))
+                except OSError:
+                    pass
+        if texts:
+            combined = "\n\n".join(texts)
+            existing = self.text_edit.toPlainText()
+            if existing.strip():
+                self.text_edit.setPlainText(existing + "\n\n" + combined)
+            else:
+                self.text_edit.setPlainText(combined)
+
+    def refresh_theme(self):
+        """WI-040: Re-apply styles with current theme colors."""
+        c = theme_manager.current_colors()
+        self.text_edit.setStyleSheet(f"""
+            QTextEdit {{
+                background: {c['surface']}; color: {c['text']};
+                border: 1px solid {c['border']}; border-radius: 6px;
+                padding: 12px; font-size: 12px; line-height: 1.6;
+            }}
+            QTextEdit:focus {{ border-color: {c['accent']}; }}
+        """)
+        self.next_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {c['accent']}; color: white; border: none;
+                border-radius: 4px; padding: 8px 16px; font-size: 12px; font-weight: 600;
+            }}
+            QPushButton:hover {{ background: {c['accent_hover']}; }}
+            QPushButton:disabled {{ background: {c['border']}; color: {c['text_muted']}; }}
+        """)
+        for label in self.findChildren(QLabel):
+            if label.styleSheet() and "font-weight: 600" in label.styleSheet():
+                continue  # badge — skip
+            ss = label.styleSheet()
+            if ss and ("text_muted" in ss or "#718096" in ss):
+                label.setStyleSheet(f"color: {c['text_muted']}; font-size: 11px;")
 
     def get_parse_result(self) -> ParseResult:
         return self._parse_result

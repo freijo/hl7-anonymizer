@@ -11,6 +11,7 @@ from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QFileDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -25,7 +26,7 @@ from PySide6.QtWidgets import (
 from src.config.config_file import load_config, save_config
 from src.config.regex_patterns import PatternRegistry
 from src.engine.llm_client import LLMConfig, test_connection
-from src.ui.theme import COLORS_LIGHT
+from src.ui.theme import COLORS_LIGHT, theme_manager
 
 DEFAULT_MASK = "***"
 
@@ -144,6 +145,31 @@ class SettingsScreen(QWidget):
         """)
         self.reset_btn.clicked.connect(self._reset_to_default)
         row_layout.addWidget(self.reset_btn)
+
+        # WI-045: Export/Import config buttons
+        btn_style = f"""
+            QPushButton {{
+                background: none; color: {COLORS_LIGHT['text_muted']};
+                border: 1px solid {COLORS_LIGHT['border']}; border-radius: 4px;
+                padding: 0 12px; font-size: 11px;
+            }}
+            QPushButton:hover {{
+                color: {COLORS_LIGHT['text']}; border-color: {COLORS_LIGHT['accent']};
+            }}
+        """
+        self.export_cfg_btn = QPushButton("Export Config")
+        self.export_cfg_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.export_cfg_btn.setFixedHeight(32)
+        self.export_cfg_btn.setStyleSheet(btn_style)
+        self.export_cfg_btn.clicked.connect(self._export_config)
+        row_layout.addWidget(self.export_cfg_btn)
+
+        self.import_cfg_btn = QPushButton("Import Config")
+        self.import_cfg_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.import_cfg_btn.setFixedHeight(32)
+        self.import_cfg_btn.setStyleSheet(btn_style)
+        self.import_cfg_btn.clicked.connect(self._import_config)
+        row_layout.addWidget(self.import_cfg_btn)
 
         row_layout.addStretch()
         card_layout.addWidget(input_row)
@@ -666,6 +692,62 @@ class SettingsScreen(QWidget):
         self.llm_prompt_edit.setPlainText(DEFAULT_PROMPT)
         self.llm_config = LLMConfig()
 
+    def _export_config(self):
+        """WI-045: Export config to user-chosen JSON file."""
+        import json
+        self._sync_llm_config()
+        data = {
+            "mask": self.mask_input.text(),
+            "length_preserve": self.length_preserve_cb.isChecked(),
+            "consistent": self.consistent_cb.isChecked(),
+            "pii_fields_enabled": self.pii_fields_cb.isChecked(),
+            "custom_regex_patterns": self.pattern_registry.to_dict_list(),
+            "llm": self.llm_config.to_dict(),
+        }
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export Configuration", "hl7anon_config.json",
+            "JSON files (*.json);;All files (*)",
+        )
+        if path:
+            from pathlib import Path
+            Path(path).write_text(
+                json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
+            )
+
+    def _import_config(self):
+        """WI-045: Import config from user-chosen JSON file."""
+        import json
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import Configuration", "",
+            "JSON files (*.json);;All files (*)",
+        )
+        if not path:
+            return
+        try:
+            from pathlib import Path
+            data = json.loads(Path(path).read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return
+        if not isinstance(data, dict):
+            return
+        # Apply imported settings
+        self.mask_input.setText(data.get("mask", DEFAULT_MASK))
+        self.length_preserve_cb.setChecked(data.get("length_preserve", False))
+        self.consistent_cb.setChecked(data.get("consistent", False))
+        self.pii_fields_cb.setChecked(data.get("pii_fields_enabled", True))
+        self.pattern_registry.load_custom(data.get("custom_regex_patterns", []))
+        self._rebuild_custom_list()
+        llm_data = data.get("llm", {})
+        if llm_data:
+            self.llm_config = LLMConfig.from_dict(llm_data)
+            idx = 1 if self.llm_config.mode == "local_api" else 0
+            self.llm_mode_combo.setCurrentIndex(idx)
+            self.llm_host_input.setText(self.llm_config.host)
+            self.llm_port_input.setText(str(self.llm_config.port))
+            self.llm_model_input.setText(self.llm_config.model_name)
+            self.llm_apikey_input.setText(self.llm_config.api_key)
+            self.llm_prompt_edit.setPlainText(self.llm_config.prompt_template)
+
     def get_mask(self) -> str:
         """Return the current mask pattern. Falls back to default if empty."""
         return self.mask_input.text() or DEFAULT_MASK
@@ -702,6 +784,96 @@ class SettingsScreen(QWidget):
             self.llm_model_input.setText(self.llm_config.model_name)
             self.llm_apikey_input.setText(self.llm_config.api_key)
             self.llm_prompt_edit.setPlainText(self.llm_config.prompt_template)
+
+    def refresh_theme(self):
+        """WI-040: Re-apply all inline stylesheets with current theme colors."""
+        c = theme_manager.current_colors()
+
+        # Cards (QFrame children)
+        for frame in self.findChildren(QFrame):
+            frame.setStyleSheet(
+                f"QFrame {{ background: {c['surface']}; "
+                f"border: 1px solid {c['border']}; border-radius: 6px; }}"
+            )
+
+        # All QLabels
+        for label in self.findChildren(QLabel):
+            text = label.text()
+            # Card titles (bold, border-bottom)
+            if label.font().weight() >= QFont.Weight.Bold or label.font().bold():
+                label.setStyleSheet(
+                    f"color: {c['text']}; font-size: 13px; font-weight: 700; "
+                    f"border: none; border-bottom: 1px solid {c['border']}; "
+                    f"padding-bottom: 6px;"
+                )
+            elif "Preview:" in text:
+                label.setStyleSheet(f"color: {c['text_muted']}; font-size: 11px;")
+            elif label.wordWrap() or label.styleSheet() and "11px" in label.styleSheet():
+                label.setStyleSheet(
+                    f"color: {c['text_muted']}; font-size: 11px; border: none;"
+                )
+            else:
+                label.setStyleSheet(f"color: {c['text']}; border: none;")
+
+        # QLineEdit inputs
+        for inp in self.findChildren(QLineEdit):
+            inp.setStyleSheet(f"""
+                QLineEdit {{
+                    background: {c['bg']}; border: 1px solid {c['border']};
+                    border-radius: 3px; padding: 0 6px; color: {c['text']}; font-size: 12px;
+                }}
+                QLineEdit:focus {{ border-color: {c['accent']}; }}
+            """)
+
+        # QCheckBox
+        for cb in self.findChildren(QCheckBox):
+            cb.setStyleSheet(f"color: {c['text']}; font-size: 12px; border: none;")
+
+        # QComboBox
+        for combo in self.findChildren(QComboBox):
+            combo.setStyleSheet(f"""
+                QComboBox {{
+                    background: {c['bg']}; border: 1px solid {c['border']};
+                    border-radius: 4px; padding: 0 8px; color: {c['text']}; font-size: 12px;
+                }}
+                QComboBox:focus {{ border-color: {c['accent']}; }}
+                QComboBox::drop-down {{ border: none; }}
+                QComboBox QAbstractItemView {{
+                    background: {c['surface']}; border: 1px solid {c['border']};
+                    color: {c['text']}; selection-background-color: {c['accent_light']};
+                }}
+            """)
+
+        # QPlainTextEdit (prompt)
+        for pte in self.findChildren(QPlainTextEdit):
+            pte.setStyleSheet(f"""
+                QPlainTextEdit {{
+                    background: {c['bg']}; border: 1px solid {c['border']};
+                    border-radius: 4px; padding: 6px; color: {c['text']}; font-size: 11px;
+                }}
+                QPlainTextEdit:focus {{ border-color: {c['accent']}; }}
+            """)
+
+        # QPushButtons — keep accent-colored buttons, update plain ones
+        btn_style_plain = f"""
+            QPushButton {{
+                background: none; color: {c['text_muted']};
+                border: 1px solid {c['border']}; border-radius: 4px;
+                padding: 0 12px; font-size: 11px;
+            }}
+            QPushButton:hover {{
+                color: {c['text']}; border-color: {c['accent']};
+            }}
+        """
+        for btn in self.findChildren(QPushButton):
+            ss = btn.styleSheet()
+            # Only restyle non-accent buttons (plain/border-only)
+            if "background: none" in ss or "background:none" in ss:
+                btn.setStyleSheet(btn_style_plain)
+
+        # Scroll area
+        for sa in self.findChildren(QScrollArea):
+            sa.setStyleSheet(f"QScrollArea {{ border: none; background: {c['bg']}; }}")
 
     def save_to_config(self):
         """WI-022: Save current settings to config file."""

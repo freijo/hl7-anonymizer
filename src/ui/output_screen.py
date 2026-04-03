@@ -16,12 +16,13 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QSplitter,
     QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
-from src.ui.theme import COLORS_LIGHT, WARNINGS
+from src.ui.theme import COLORS_LIGHT, WARNINGS, theme_manager
 
 
 MONO_FONT = QFont("Cascadia Code", 11)
@@ -34,6 +35,7 @@ class OutputScreen(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._field_count = 0
+        self._original_text = ""
         self._build_ui()
 
     def _build_ui(self):
@@ -97,17 +99,35 @@ class OutputScreen(QWidget):
         self.export_btn.clicked.connect(self._export_to_file)
         top_layout.addWidget(self.export_btn)
 
+        # WI-042: Diff toggle
+        self.diff_btn = QPushButton("Diff View")
+        self.diff_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.diff_btn.setFixedHeight(36)
+        self.diff_btn.setCheckable(True)
+        self.diff_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: none; color: {COLORS_LIGHT['text_muted']};
+                border: 1px solid {COLORS_LIGHT['border']}; border-radius: 4px;
+                padding: 0 16px; font-size: 13px; font-weight: 600;
+            }}
+            QPushButton:hover {{
+                color: {COLORS_LIGHT['text']}; border-color: {COLORS_LIGHT['accent']};
+            }}
+            QPushButton:checked {{
+                background: {COLORS_LIGHT['accent_light']}; color: {COLORS_LIGHT['accent']};
+                border-color: {COLORS_LIGHT['accent']};
+            }}
+        """)
+        self.diff_btn.setEnabled(False)
+        self.diff_btn.toggled.connect(self._toggle_diff)
+        top_layout.addWidget(self.diff_btn)
+
         outer.addWidget(top_bar)
 
-        # --- Main textarea ---
-        self.text_edit = QTextEdit()
-        self.text_edit.setFont(MONO_FONT)
-        self.text_edit.setReadOnly(True)
-        self.text_edit.setPlaceholderText(
-            "Anonymized HL7 output will appear here.\n\n"
-            "Select fields in Step 2, then navigate here to anonymize."
-        )
-        self.text_edit.setStyleSheet(f"""
+        # --- Main content: splitter with original + anonymized ---
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)
+
+        te_style = f"""
             QTextEdit {{
                 background: {COLORS_LIGHT['surface']};
                 border: 1px solid {COLORS_LIGHT['border']};
@@ -115,8 +135,29 @@ class OutputScreen(QWidget):
                 padding: 12px;
                 color: {COLORS_LIGHT['text']};
             }}
-        """)
-        outer.addWidget(self.text_edit, 1)
+        """
+
+        # WI-042: Original pane (hidden by default)
+        self.original_edit = QTextEdit()
+        self.original_edit.setFont(MONO_FONT)
+        self.original_edit.setReadOnly(True)
+        self.original_edit.setPlaceholderText("Original HL7")
+        self.original_edit.setStyleSheet(te_style)
+        self.original_edit.hide()
+        self.splitter.addWidget(self.original_edit)
+
+        # Anonymized pane
+        self.text_edit = QTextEdit()
+        self.text_edit.setFont(MONO_FONT)
+        self.text_edit.setReadOnly(True)
+        self.text_edit.setPlaceholderText(
+            "Anonymized HL7 output will appear here.\n\n"
+            "Select fields in Step 2, then navigate here to anonymize."
+        )
+        self.text_edit.setStyleSheet(te_style)
+        self.splitter.addWidget(self.text_edit)
+
+        outer.addWidget(self.splitter, 1)
 
         # --- WI-027: Anonymization log ---
         self.log_label = QLabel("")
@@ -137,6 +178,17 @@ class OutputScreen(QWidget):
         )
         outer.addWidget(self.feedback_label)
 
+    def set_original_text(self, text: str):
+        """WI-042: Store original text for diff view."""
+        self._original_text = text
+        self.original_edit.setPlainText(text)
+
+    def _toggle_diff(self, checked: bool):
+        """WI-042: Toggle diff view (side-by-side original vs anonymized)."""
+        self.original_edit.setVisible(checked)
+        if checked and self._original_text:
+            self.original_edit.setPlainText(self._original_text)
+
     def set_anonymized_output(
         self, text: str, field_count: int,
         msg_count: int = 0, segments: set[str] | None = None, mask: str = "***",
@@ -146,6 +198,7 @@ class OutputScreen(QWidget):
         self.text_edit.setPlainText(text)
         self.copy_btn.setEnabled(bool(text))
         self.export_btn.setEnabled(bool(text))
+        self.diff_btn.setEnabled(bool(text) and bool(self._original_text))
 
         if text:
             word = "field" if field_count == 1 else "fields"
@@ -193,3 +246,53 @@ class OutputScreen(QWidget):
         Path(path).write_text(text, encoding="utf-8")
         self.feedback_label.setText(f"Exported to {Path(path).name}")
         QTimer.singleShot(3000, lambda: self.feedback_label.setText(""))
+
+    def refresh_theme(self):
+        """WI-040: Re-apply styles with current theme colors."""
+        c = theme_manager.current_colors()
+        te_style = f"""
+            QTextEdit {{
+                background: {c['surface']}; border: 1px solid {c['border']};
+                border-radius: 6px; padding: 12px; color: {c['text']};
+            }}
+        """
+        self.text_edit.setStyleSheet(te_style)
+        self.original_edit.setStyleSheet(te_style)
+        self.status_label.setStyleSheet(
+            f"color: {c['text_muted']}; font-size: 12px;"
+        )
+        self.log_label.setStyleSheet(
+            f"color: {c['text_muted']}; font-size: 11px; "
+            f"background: {c['surface']}; border: 1px solid {c['border']}; "
+            f"border-radius: 4px; padding: 8px;"
+        )
+        self.copy_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {c['action_bg']}; color: white;
+                border: none; border-radius: 4px; padding: 0 24px;
+                font-size: 13px; font-weight: 700;
+            }}
+            QPushButton:hover {{ background: {c['action_hover']}; }}
+            QPushButton:disabled {{ background: {c['border']}; color: {c['text_muted']}; }}
+        """)
+        self.export_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {c['accent']}; color: white;
+                border: none; border-radius: 4px; padding: 0 24px;
+                font-size: 13px; font-weight: 700;
+            }}
+            QPushButton:hover {{ background: {c['accent_hover']}; }}
+            QPushButton:disabled {{ background: {c['border']}; color: {c['text_muted']}; }}
+        """)
+        self.diff_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: none; color: {c['text_muted']};
+                border: 1px solid {c['border']}; border-radius: 4px;
+                padding: 0 16px; font-size: 13px; font-weight: 600;
+            }}
+            QPushButton:hover {{ color: {c['text']}; border-color: {c['accent']}; }}
+            QPushButton:checked {{
+                background: {c['accent_light']}; color: {c['accent']};
+                border-color: {c['accent']};
+            }}
+        """)
