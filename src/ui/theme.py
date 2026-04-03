@@ -72,8 +72,8 @@ FIELD_STATES_LIGHT = {
         "text": "#553c8b",
     },
     "neutral": {
-        "background": "#ffffff",
-        "border": "#e8ecf1",
+        "background": "#f7f8fc",
+        "border": "#c8d0dc",
         "text": None,
     },
 }
@@ -109,6 +109,18 @@ def current_field_states() -> dict:
 
 # Backwards compat alias — existing code that reads FIELD_STATES at import time
 FIELD_STATES = FIELD_STATES_LIGHT
+
+# Shared tooltip CSS — append to any widget stylesheet that has tooltips
+TOOLTIP_CSS = (
+    "QToolTip {"
+    "  background-color: #2d3748;"
+    "  color: #ffffff;"
+    "  border: 1px solid #4a5568;"
+    "  padding: 4px 8px;"
+    "  font-family: 'Segoe UI';"
+    "  font-size: 12px;"
+    "}"
+)
 
 # 2.3 Warning colors
 WARNINGS = {

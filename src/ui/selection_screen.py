@@ -40,7 +40,7 @@ from src.config.config_file import load_config, save_config
 from src.config.field_definitions import DEFAULT_PII_FIELDS
 from src.config.field_descriptions import get_field_tooltip
 from src.parser.hl7_parser import HL7Field, HL7Message, HL7Segment, ParseResult, tokenize_field_value
-from src.ui.theme import COLORS_LIGHT, FIELD_STATES, WARNINGS, theme_manager, current_field_states
+from src.ui.theme import COLORS_LIGHT, FIELD_STATES, TOOLTIP_CSS, WARNINGS, theme_manager, current_field_states
 
 
 MONO_FONT = QFont("Cascadia Code", 11)
@@ -141,9 +141,7 @@ class ValueWidget(QLabel):
         self.setStyleSheet(
             f"QLabel {{ background: {bg}; border: 1px solid {border}; "
             f"color: {text_color}; padding: 1px 3px; border-radius: 2px; }}"
-            f"QToolTip {{ background: {c['gray_dark']}; "
-            f"color: white; border: 1px solid {c['border']}; "
-            f"padding: 4px 8px; font-size: 12px; }}"
+            + TOOLTIP_CSS
         )
 
 
@@ -151,8 +149,9 @@ def _make_separator_label(char: str) -> QLabel:
     """Create a styled separator label (^, ~, &, |)."""
     label = QLabel(char)
     label.setFont(MONO_FONT)
+    c = theme_manager.current_colors()
     label.setStyleSheet(
-        f"color: {COLORS_LIGHT['border']}; padding: 1px 0; background: none;"
+        f"color: {c['border']}; padding: 1px 0; background: none;"
     )
     return label
 
@@ -251,6 +250,7 @@ class SegmentLineWidget(QWidget):
         self.seg_label.setStyleSheet(
             f"color: {COLORS_LIGHT['accent']}; font-weight: 700; "
             f"padding: 1px 2px; background: none;"
+            + TOOLTIP_CSS
         )
         self.seg_label.setFixedWidth(38)
         self.seg_label.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
@@ -606,6 +606,7 @@ class SelectionScreen(QWidget):
         self.sync_checkbox = QCheckBox("Auswahl auf alle\nMeldungen übertragen")
         self.sync_checkbox.setStyleSheet(
             f"QCheckBox {{ color: {COLORS_LIGHT['text']}; font-size: 11px; border: none; }}"
+            + TOOLTIP_CSS
         )
         self.sync_checkbox.setToolTip(
             "Wenn aktiv, wird jede Feldauswahl automatisch auf\n"
@@ -693,6 +694,8 @@ class SelectionScreen(QWidget):
         del_prof_btn.setStyleSheet(prof_btn_style)
         del_prof_btn.clicked.connect(self._delete_profile)
         pbtn_layout.addWidget(del_prof_btn)
+
+        self._profile_buttons = [save_prof_btn, load_prof_btn, del_prof_btn]
 
         pbtn_layout.addStretch()
         profile_card.layout().addWidget(profile_btn_row)
@@ -1015,7 +1018,7 @@ class SelectionScreen(QWidget):
                 QPushButton:hover {{
                     background: {COLORS_LIGHT['accent']}; color: white;
                 }}
-            """)
+            """ + TOOLTIP_CSS)
             btn.setToolTip(f"Select/deselect all {name} fields")
             btn.clicked.connect(lambda checked, n=name: self._toggle_segment_by_name(n))
             self.seg_buttons_layout.addWidget(btn)
@@ -1089,9 +1092,6 @@ class SelectionScreen(QWidget):
                 vw.setStyleSheet(
                     f"QLabel {{ background: {bg}; border: 2px solid {clr['accent']}; "
                     f"color: {text_color}; padding: 1px 3px; border-radius: 2px; }}"
-                    f"QToolTip {{ background: {clr['gray_dark']}; "
-                    f"color: white; border: 1px solid {clr['border']}; "
-                    f"padding: 4px 8px; font-size: 12px; }}"
                 )
             else:
                 vw._apply_style()
@@ -1166,14 +1166,15 @@ class SelectionScreen(QWidget):
                        buttons=QMessageBox.StandardButton.Ok,
                        default=QMessageBox.StandardButton.Ok) -> QMessageBox.StandardButton:
         """Show a QMessageBox with explicit styling so text is visible."""
+        c = theme_manager.current_colors()
         box = QMessageBox(icon, title, text, buttons, self)
         box.setDefaultButton(default)
         box.setStyleSheet(
-            "QMessageBox { background: #ffffff; }"
-            "QMessageBox QLabel { color: #2d3748; font-size: 13px; }"
-            "QPushButton { background: #0066A1; color: white; border: none; "
-            "border-radius: 4px; padding: 6px 18px; font-size: 12px; font-weight: 600; }"
-            "QPushButton:hover { background: #004d7a; }"
+            f"QMessageBox {{ background: {c['surface']}; }}"
+            f"QMessageBox QLabel {{ color: {c['text']}; font-size: 13px; }}"
+            f"QPushButton {{ background: {c['accent']}; color: white; border: none; "
+            f"border-radius: 4px; padding: 6px 18px; font-size: 12px; font-weight: 600; }}"
+            f"QPushButton:hover {{ background: {c['accent_hover']}; }}"
         )
         return box.exec()
 
@@ -1454,7 +1455,41 @@ class SelectionScreen(QWidget):
         for seg_line in self._segment_lines:
             seg_line.seg_label.setStyleSheet(
                 f"color: {c['accent']}; font-weight: 700; padding: 1px 2px; background: none;"
+                + TOOLTIP_CSS
             )
+            # Refresh pipe/separator labels within segment rows
+            for child in seg_line.findChildren(QLabel):
+                if child is not seg_line.seg_label and child not in self._all_value_widgets:
+                    child.setStyleSheet(
+                        f"color: {c['border']}; padding: 1px 0; background: none;"
+                    )
+
+        # Segment quick-select buttons
+        seg_btn_style = f"""
+            QPushButton {{
+                background: {c['accent_light']}; color: {c['accent']};
+                border: 1px solid {c['border']}; border-radius: 3px;
+                font-size: 10px; font-weight: 700; padding: 0 6px;
+            }}
+            QPushButton:hover {{ background: {c['accent']}; color: white; }}
+        """
+        seg_btn_style += TOOLTIP_CSS
+        for i in range(self.seg_buttons_layout.count()):
+            item = self.seg_buttons_layout.itemAt(i)
+            if item and item.widget() and isinstance(item.widget(), QPushButton):
+                item.widget().setStyleSheet(seg_btn_style)
+
+        # Profile buttons
+        prof_btn_style = f"""
+            QPushButton {{
+                background: {c['accent_light']}; color: {c['accent']};
+                border: 1px solid {c['border']}; border-radius: 3px;
+                font-size: 10px; font-weight: 600; padding: 2px 8px;
+            }}
+            QPushButton:hover {{ background: {c['accent']}; color: white; }}
+        """
+        for btn in getattr(self, '_profile_buttons', []):
+            btn.setStyleSheet(prof_btn_style)
 
         # Sidebar cards
         for card in self._sidebar_cards:
@@ -1479,6 +1514,7 @@ class SelectionScreen(QWidget):
         )
         self.sync_checkbox.setStyleSheet(
             f"QCheckBox {{ color: {c['text']}; font-size: 11px; border: none; }}"
+            + TOOLTIP_CSS
         )
         self.sync_status_label.setStyleSheet(
             f"color: {c['text_muted']}; font-size: 10px; border: none;"
@@ -1510,14 +1546,39 @@ class SelectionScreen(QWidget):
         """)
 
         # LLM row buttons
+        llm_fs = fs.get('llm_suggestion', FIELD_STATES['llm_suggestion'])
         self.llm_analyze_btn.setStyleSheet(f"""
             QPushButton {{
-                background: {FIELD_STATES['llm_suggestion']['border']};
+                background: {llm_fs['border']};
                 color: white; border: none; border-radius: 4px;
                 font-size: 12px; font-weight: 700; padding: 0 14px;
             }}
-            QPushButton:hover {{ background: {FIELD_STATES['llm_suggestion']['text']}; }}
+            QPushButton:hover {{ background: {llm_fs['text']}; }}
             QPushButton:disabled {{ background: {c['border']}; color: {c['text_muted']}; }}
+        """)
+        self.llm_cancel_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: none; color: {c['text_muted']};
+                border: 1px solid {c['border']}; border-radius: 4px;
+                font-size: 11px; padding: 0 10px;
+            }}
+            QPushButton:hover {{ color: #c0392b; border-color: #c0392b; }}
+        """)
+        self.llm_accept_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {c['action_bg']}; color: white;
+                border: none; border-radius: 4px;
+                font-size: 11px; font-weight: 600; padding: 0 10px;
+            }}
+            QPushButton:hover {{ background: {c['action_hover']}; }}
+        """)
+        self.llm_dismiss_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: none; color: {c['text_muted']};
+                border: 1px solid {c['border']}; border-radius: 4px;
+                font-size: 11px; padding: 0 10px;
+            }}
+            QPushButton:hover {{ color: #c0392b; border-color: #c0392b; }}
         """)
         self.llm_progress.setStyleSheet(f"""
             QProgressBar {{
@@ -1526,7 +1587,7 @@ class SelectionScreen(QWidget):
                 color: {c['text_muted']};
             }}
             QProgressBar::chunk {{
-                background: {FIELD_STATES['llm_suggestion']['border']};
+                background: {llm_fs['border']};
                 border-radius: 3px;
             }}
         """)

@@ -23,6 +23,8 @@ def anonymize(
     mask: str = "***",
     length_preserve: bool = False,
     consistent: bool = False,
+    message_separator: str = "\n\n",
+    preserve_non_hl7: bool = False,
 ) -> str:
     """Anonymize selected fields in parsed HL7 messages.
 
@@ -33,6 +35,8 @@ def anonymize(
         mask: Replacement string for selected values. Default: "***".
         length_preserve: WI-023 — repeat mask char to match original length.
         consistent: WI-024 — same original value → same pseudonym.
+        message_separator: WI-050 — separator between messages in output. Default: blank line.
+        preserve_non_hl7: WI-052 — keep non-HL7 lines at original position.
 
     Returns:
         Anonymized HL7 text with structure preserved.
@@ -43,18 +47,29 @@ def anonymize(
     # WI-024: consistent pseudonymization mapping
     pseudo_map: dict[str, str] = {} if consistent else {}
 
-    output_lines: list[str] = []
+    message_blocks: list[str] = []
 
     for msg_idx, msg in enumerate(parse_result.messages):
+        msg_lines: list[str] = []
         for segment in msg.segments:
             line = _anonymize_segment(
                 segment, msg_idx, msg.encoding_chars, selections, mask,
                 length_preserve=length_preserve,
                 consistent=consistent, pseudo_map=pseudo_map,
             )
-            output_lines.append(line)
+            msg_lines.append(line)
+        message_blocks.append("\n".join(msg_lines))
 
-    return "\n".join(output_lines)
+    # WI-052: Insert non-HL7 lines at original positions
+    if preserve_non_hl7 and parse_result.non_hl7_lines:
+        non_hl7_text = "\n".join(content for _, content in parse_result.non_hl7_lines)
+        # Place non-HL7 content between first and second message (or at end)
+        if len(message_blocks) > 1:
+            message_blocks.insert(1, non_hl7_text)
+        else:
+            message_blocks.append(non_hl7_text)
+
+    return message_separator.join(message_blocks)
 
 
 def _build_mask(mask: str, original: str, length_preserve: bool,

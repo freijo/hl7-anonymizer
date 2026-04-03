@@ -56,8 +56,6 @@ class InputScreen(QWidget):
                 border: 1px solid {COLORS_LIGHT['border']};
                 border-radius: 6px;
                 padding: 12px;
-                font-size: 12px;
-                line-height: 1.6;
             }}
             QTextEdit:focus {{
                 border-color: {COLORS_LIGHT['accent']};
@@ -168,7 +166,7 @@ class InputScreen(QWidget):
                 border: none;
                 border-radius: 4px;
                 padding: 8px 16px;
-                font-size: 12px;
+                font-size: 13px;
                 font-weight: 600;
             }}
             QPushButton:hover {{
@@ -335,14 +333,14 @@ class InputScreen(QWidget):
             QTextEdit {{
                 background: {c['surface']}; color: {c['text']};
                 border: 1px solid {c['border']}; border-radius: 6px;
-                padding: 12px; font-size: 12px; line-height: 1.6;
+                padding: 12px;
             }}
             QTextEdit:focus {{ border-color: {c['accent']}; }}
         """)
         self.next_btn.setStyleSheet(f"""
             QPushButton {{
                 background: {c['accent']}; color: white; border: none;
-                border-radius: 4px; padding: 8px 16px; font-size: 12px; font-weight: 600;
+                border-radius: 4px; padding: 8px 16px; font-size: 13px; font-weight: 600;
             }}
             QPushButton:hover {{ background: {c['accent_hover']}; }}
             QPushButton:disabled {{ background: {c['border']}; color: {c['text_muted']}; }}

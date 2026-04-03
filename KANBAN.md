@@ -48,3 +48,14 @@
 - [x] WI-045: Config Export/Import
 - [x] WI-046: Bereichsmarkierung
 - [x] WI-047: Accessibility
+
+## DONE (Tier 5 — Export & Settings Refactor)
+- [x] WI-051: Globaler Settings-Dialog (Zahnrad-Button, Settings aus Step 3 in Dialog verschieben, 3-Step-Navigation)
+- [x] WI-050: Export-Trenner zwischen HL7-Meldungen (konfigurierbar, Default: HL7-Standard-Zeilenumbruch)
+- [x] WI-052: Non-HL7-Elemente im Export beibehalten (optional, Position erhalten, in Settings konfigurierbar)
+
+## DONE (Tier 5 — UI Polish)
+- [x] WI-053: Tooltips einheitlich in Light & Dark Mode (per-Widget QToolTip CSS)
+- [x] WI-054: Header-Buttons mit Segoe MDL2 Font-Icons (Zahnrad, Theme-Toggle)
+- [x] WI-055: Font-Konsistenz Input/Output (Cascadia Code 11 überall)
+- [x] WI-056: Settings-Dialog schwarzer Rand entfernt (QPalette + ScrollContent Background)

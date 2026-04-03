@@ -1,8 +1,9 @@
-"""Main window with 4-step navigation."""
+"""Main window with 3-step navigation + settings dialog."""
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QColor, QFont, QPalette
 from PySide6.QtWidgets import (
+    QApplication,
     QHBoxLayout,
     QLabel,
     QMainWindow,
@@ -15,16 +16,14 @@ from PySide6.QtWidgets import (
 from src.engine.anonymizer import anonymize
 from src.ui.input_screen import InputScreen
 from src.ui.selection_screen import SelectionScreen
-from src.ui.settings_screen import SettingsScreen
+from src.ui.settings_screen import SettingsDialog
 from src.ui.output_screen import OutputScreen
-from src.ui.theme import COLORS_LIGHT, COLORS_DARK, theme_manager
-
+from src.ui.theme import COLORS_LIGHT, COLORS_DARK, TOOLTIP_CSS, theme_manager
 
 STEPS = [
     ("1", "Input"),
     ("2", "Select Fields"),
-    ("3", "Settings"),
-    ("4", "Output"),
+    ("3", "Output"),
 ]
 
 
@@ -106,7 +105,7 @@ class MainWindow(QMainWindow):
         nav_layout.addStretch()
         layout.addWidget(self.nav_bar)
 
-        # --- Content stack ---
+        # --- Content stack (3 screens) ---
         self.stack = QStackedWidget()
         self.stack.setStyleSheet(f"background: {COLORS_LIGHT['bg']};")
 
@@ -114,24 +113,29 @@ class MainWindow(QMainWindow):
         self.input_screen.navigate_next.connect(lambda: self._go_step(1))
         self.stack.addWidget(self.input_screen)
 
-        # Placeholder screens
         self.selection_screen = SelectionScreen()
         self.stack.addWidget(self.selection_screen)
-
-        self.settings_screen = SettingsScreen()
-        self.stack.addWidget(self.settings_screen)
 
         self.output_screen = OutputScreen()
         self.stack.addWidget(self.output_screen)
 
         layout.addWidget(self.stack, 1)
 
+        # --- WI-051: Settings dialog (not in stack) ---
+        self.settings_dialog = SettingsDialog(self)
+        self.settings_dialog.settings_closed.connect(self._on_settings_closed)
+
         # Initial state
         self._go_step(0)
 
+    # Backwards-compat property so existing code referencing settings_screen still works
+    @property
+    def settings_screen(self):
+        return self.settings_dialog
+
     def closeEvent(self, event):
         """WI-022: Save settings on close."""
-        self.settings_screen.save_to_config()
+        self.settings_dialog.save_to_config()
         super().closeEvent(event)
 
     def _build_header(self) -> QWidget:
@@ -161,37 +165,71 @@ class MainWindow(QMainWindow):
         )
         h_layout.addWidget(version)
 
-        # WI-040: Dark Mode toggle
-        self.theme_btn = QPushButton("\u263E")  # ☾ moon
+        header_btn_ss = (
+            f"QPushButton {{ background: none; border: 1px solid {COLORS_LIGHT['border']}; "
+            f"border-radius: 4px; font-size: 11px; font-weight: 600; "
+            f"color: {COLORS_LIGHT['text']}; padding: 4px 12px; }}"
+            f"QPushButton:hover {{ background: {COLORS_LIGHT['panel']}; }}"
+        )
+
+        icon_btn_ss = (
+            f"QPushButton {{ background: none; border: 1px solid {COLORS_LIGHT['border']}; "
+            f"border-radius: 4px; font-family: 'Segoe MDL2 Assets'; font-size: 14px; "
+            f"color: {COLORS_LIGHT['text']}; padding: 0; }}"
+            f"QPushButton:hover {{ background: {COLORS_LIGHT['panel']}; }}"
+            + TOOLTIP_CSS
+        )
+
+        # WI-051: Settings button (gear icon from Segoe MDL2 Assets)
+        self.settings_btn = QPushButton("\uE713")  # Settings gear
+        self.settings_btn.setFixedSize(36, 36)
+        self.settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.settings_btn.setToolTip("Settings")
+        self.settings_btn.setStyleSheet(icon_btn_ss)
+        self.settings_btn.clicked.connect(self._open_settings)
+        h_layout.addWidget(self.settings_btn)
+
+        # WI-040: Dark Mode toggle (moon icon from Segoe MDL2 Assets)
+        self.theme_btn = QPushButton("\uE708")  # Brightness / sun
         self.theme_btn.setFixedSize(36, 36)
         self.theme_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.theme_btn.setToolTip("Toggle Dark Mode")
-        self.theme_btn.setStyleSheet(
-            "QPushButton { background: none; border: 1px solid #d2d8e2; "
-            "border-radius: 4px; font-size: 16px; color: #2d3748; }"
-            "QPushButton:hover { background: #edf0f5; }"
-        )
+        self.theme_btn.setStyleSheet(icon_btn_ss)
         self.theme_btn.clicked.connect(self._toggle_theme)
         h_layout.addWidget(self.theme_btn)
 
         return header
 
+    def _open_settings(self):
+        """WI-051: Open settings dialog."""
+        self.settings_dialog.show()
+        self.settings_dialog.raise_()
+        self.settings_dialog.activateWindow()
+
+    def _on_settings_closed(self):
+        """Refresh selection screen after settings dialog closes."""
+        if self.stack.currentIndex() == 1:
+            self.selection_screen.set_pattern_registry(
+                self.settings_dialog.pattern_registry
+            )
+            self.selection_screen.set_pii_fields_enabled(
+                self.settings_dialog.get_pii_fields_enabled()
+            )
+            self.selection_screen.set_parse_result(
+                self.input_screen.get_parse_result()
+            )
+
     def _toggle_theme(self):
         """WI-040: Toggle between light and dark mode by re-applying stylesheets."""
-        from PySide6.QtGui import QColor, QPalette
-        from PySide6.QtWidgets import QApplication
         theme_manager.toggle()
         c = theme_manager.current_colors()
-        is_dark = theme_manager.is_dark()
 
-        if is_dark:
-            self.theme_btn.setText("\u2600")  # ☀ sun
-            self.theme_btn.setToolTip("Toggle Light Mode")
+        if theme_manager.is_dark():
+            self.theme_btn.setText("\uE706")  # Sunny / light mode
         else:
-            self.theme_btn.setText("\u263E")  # ☾ moon
-            self.theme_btn.setToolTip("Toggle Dark Mode")
+            self.theme_btn.setText("\uE708")  # Brightness / dark mode
 
-        # Update QPalette for default widget colors
+        # Full palette for dark mode / restore system palette for light mode
         palette = QPalette()
         palette.setColor(QPalette.ColorRole.Window, QColor(c['bg']))
         palette.setColor(QPalette.ColorRole.WindowText, QColor(c['text']))
@@ -202,9 +240,10 @@ class MainWindow(QMainWindow):
         palette.setColor(QPalette.ColorRole.ButtonText, QColor(c['text']))
         palette.setColor(QPalette.ColorRole.Highlight, QColor(c['accent']))
         palette.setColor(QPalette.ColorRole.HighlightedText, QColor('#ffffff'))
-        palette.setColor(QPalette.ColorRole.ToolTipBase, QColor(c['surface']))
-        palette.setColor(QPalette.ColorRole.ToolTipText, QColor(c['text']))
         palette.setColor(QPalette.ColorRole.PlaceholderText, QColor(c['text_muted']))
+        # Tooltip colors — always dark bg with white text
+        palette.setColor(QPalette.ColorRole.ToolTipBase, QColor("#2d3748"))
+        palette.setColor(QPalette.ColorRole.ToolTipText, QColor("#ffffff"))
         QApplication.instance().setPalette(palette)
 
         # Force-update structural widgets that have inline stylesheets
@@ -217,11 +256,16 @@ class MainWindow(QMainWindow):
             f"background: {c['surface']}; border-bottom: 1px solid {c['border']};"
         )
         self.stack.setStyleSheet(f"background: {c['bg']};")
-        self.theme_btn.setStyleSheet(
+
+        header_btn_style = (
             f"QPushButton {{ background: none; border: 1px solid {c['border']}; "
-            f"border-radius: 4px; font-size: 16px; color: {c['text']}; }}"
+            f"border-radius: 4px; font-family: 'Segoe MDL2 Assets'; font-size: 14px; "
+            f"color: {c['text']}; padding: 0; }}"
             f"QPushButton:hover {{ background: {c['panel']}; }}"
+            + TOOLTIP_CSS
         )
+        self.theme_btn.setStyleSheet(header_btn_style)
+        self.settings_btn.setStyleSheet(header_btn_style)
 
         # Update step buttons
         for i, btn in enumerate(self.step_buttons):
@@ -247,7 +291,7 @@ class MainWindow(QMainWindow):
                 """)
 
         # Refresh child screens
-        self.settings_screen.refresh_theme()
+        self.settings_dialog.refresh_theme()
         self.input_screen.refresh_theme()
         self.selection_screen.refresh_theme()
         self.output_screen.refresh_theme()
@@ -261,24 +305,24 @@ class MainWindow(QMainWindow):
             # When navigating to step 2, pass parsed data + detection settings
             if index == 1:
                 self.selection_screen.set_pattern_registry(
-                    self.settings_screen.pattern_registry
+                    self.settings_dialog.pattern_registry
                 )
                 self.selection_screen.set_pii_fields_enabled(
-                    self.settings_screen.get_pii_fields_enabled()
+                    self.settings_dialog.get_pii_fields_enabled()
                 )
                 self.selection_screen.set_llm_config(
-                    self.settings_screen.get_llm_config()
+                    self.settings_dialog.get_llm_config()
                 )
                 self.selection_screen.set_parse_result(
                     self.input_screen.get_parse_result()
                 )
 
-            # When navigating to step 4, run anonymization engine
-            if index == 3:
+            # When navigating to step 3 (Output), run anonymization engine
+            if index == 2:
                 self._run_anonymization()
 
     def _run_anonymization(self):
-        """Collect selections from step 2, run engine, pass result to step 4."""
+        """Collect selections from step 2, run engine, pass result to step 3."""
         parse_result = self.input_screen.get_parse_result()
         raw_selections = self.selection_screen.get_selections()
 
@@ -292,12 +336,16 @@ class MainWindow(QMainWindow):
         # WI-042: Pass original text for diff view
         self.output_screen.set_original_text(self.input_screen.text_edit.toPlainText())
 
-        mask = self.settings_screen.get_mask()
-        length_preserve = self.settings_screen.get_length_preserve()
-        consistent = self.settings_screen.get_consistent()
+        mask = self.settings_dialog.get_mask()
+        length_preserve = self.settings_dialog.get_length_preserve()
+        consistent = self.settings_dialog.get_consistent()
+        message_separator = self.settings_dialog.get_message_separator()
+        preserve_non_hl7 = self.settings_dialog.get_preserve_non_hl7()
         result = anonymize(
             parse_result, selections, mask=mask,
             length_preserve=length_preserve, consistent=consistent,
+            message_separator=message_separator,
+            preserve_non_hl7=preserve_non_hl7,
         )
         self.output_screen.set_anonymized_output(
             result, len(selections),

@@ -1,16 +1,18 @@
-"""WI-007: Step 3 — Settings screen.
+"""WI-007/WI-051: Settings dialog.
 
 Mask character setting with live preview.
+WI-051: Converted from Step 3 screen to global dialog (gear button in header).
 DoD: Änderung wird sofort bei nächster Anonymisierung angewendet.
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor, QFont, QPalette
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QDialog,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -26,34 +28,49 @@ from PySide6.QtWidgets import (
 from src.config.config_file import load_config, save_config
 from src.config.regex_patterns import PatternRegistry
 from src.engine.llm_client import LLMConfig, test_connection
-from src.ui.theme import COLORS_LIGHT, theme_manager
+from src.ui.theme import COLORS_LIGHT, TOOLTIP_CSS, theme_manager
 
 DEFAULT_MASK = "***"
 
 
-class SettingsScreen(QWidget):
-    """Step 3: Anonymization settings."""
+class SettingsDialog(QDialog):
+    """WI-051: Global settings dialog (opened via gear button)."""
+
+    settings_closed = Signal()  # Emitted on close so selection screen can refresh
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setWindowTitle("Settings")
+        self.setMinimumSize(800, 500)
+        self.resize(860, 620)
         self.pattern_registry = PatternRegistry()
         self.llm_config = LLMConfig()
         self._build_ui()
         self._load_from_config()
 
     def _build_ui(self):
+        c = COLORS_LIGHT
+        self.setStyleSheet(f"QDialog {{ background: {c['bg']}; border: none; }}")
+        # Fill window frame area with bg color to eliminate black border on Windows
+        pal = self.palette()
+        pal.setColor(QPalette.ColorRole.Window, QColor(c['bg']))
+        self.setPalette(pal)
+        self.setAutoFillBackground(True)
+        self._cb_style = f"QCheckBox {{ color: {c['text']}; font-size: 12px; }}" + TOOLTIP_CSS
+
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("QScrollArea { border: none; }")
-        scroll_content = QWidget()
-        outer = QVBoxLayout(scroll_content)
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setStyleSheet(f"QScrollArea {{ border: none; background: {c['bg']}; }}")
+        self._scroll_content = QWidget()
+        self._scroll_content.setStyleSheet(f"background: {c['bg']};")
+        outer = QVBoxLayout(self._scroll_content)
         outer.setContentsMargins(28, 16, 28, 16)
         outer.setSpacing(16)
-        scroll.setWidget(scroll_content)
-        root.addWidget(scroll)
+        self._scroll.setWidget(self._scroll_content)
+        root.addWidget(self._scroll)
 
         heading = QLabel("Anonymization Settings")
         heading.setStyleSheet(
@@ -176,6 +193,96 @@ class SettingsScreen(QWidget):
 
         outer.addWidget(card)
 
+        # --- WI-050: Export separator card ---
+        sep_card = QFrame()
+        sep_card.setStyleSheet(
+            f"QFrame {{ background: {COLORS_LIGHT['surface']}; "
+            f"border: 1px solid {COLORS_LIGHT['border']}; border-radius: 6px; }}"
+        )
+        sep_layout = QVBoxLayout(sep_card)
+        sep_layout.setContentsMargins(16, 12, 16, 14)
+        sep_layout.setSpacing(8)
+
+        sep_title = QLabel("Export Options")
+        sep_title.setStyleSheet(
+            f"color: {COLORS_LIGHT['text']}; font-size: 13px; font-weight: 700; "
+            f"border: none; border-bottom: 1px solid {COLORS_LIGHT['border']}; "
+            f"padding-bottom: 6px;"
+        )
+        sep_layout.addWidget(sep_title)
+
+        sep_row = QWidget()
+        sep_row.setStyleSheet("border: none;")
+        sep_row_layout = QHBoxLayout(sep_row)
+        sep_row_layout.setContentsMargins(0, 4, 0, 0)
+        sep_row_layout.setSpacing(8)
+
+        sep_label = QLabel("Message Separator:")
+        sep_label.setStyleSheet(
+            f"color: {COLORS_LIGHT['text']}; font-size: 12px; font-weight: 600;"
+        )
+        sep_row_layout.addWidget(sep_label)
+
+        self.separator_combo = QComboBox()
+        self.separator_combo.addItems([
+            "Blank line (Default)",
+            "\\r\\n (HL7 Standard)",
+            "\\n (Unix)",
+            "Custom...",
+        ])
+        self.separator_combo.setFixedHeight(30)
+        self.separator_combo.setFixedWidth(200)
+        self.separator_combo.setStyleSheet(f"""
+            QComboBox {{
+                background: {COLORS_LIGHT['bg']}; border: 1px solid {COLORS_LIGHT['border']};
+                border-radius: 4px; padding: 0 8px; color: {COLORS_LIGHT['text']}; font-size: 12px;
+            }}
+            QComboBox:focus {{ border-color: {COLORS_LIGHT['accent']}; }}
+            QComboBox::drop-down {{ border: none; }}
+            QComboBox QAbstractItemView {{
+                background: {COLORS_LIGHT['surface']}; border: 1px solid {COLORS_LIGHT['border']};
+                color: {COLORS_LIGHT['text']}; selection-background-color: {COLORS_LIGHT['accent_light']};
+            }}
+        """)
+        self.separator_combo.currentIndexChanged.connect(self._on_separator_changed)
+        sep_row_layout.addWidget(self.separator_combo)
+
+        self.custom_separator_input = QLineEdit()
+        self.custom_separator_input.setPlaceholderText("e.g. ---")
+        self.custom_separator_input.setFixedHeight(30)
+        self.custom_separator_input.setFixedWidth(120)
+        self.custom_separator_input.setStyleSheet(f"""
+            QLineEdit {{
+                background: {COLORS_LIGHT['bg']}; border: 1px solid {COLORS_LIGHT['border']};
+                border-radius: 4px; padding: 0 8px; color: {COLORS_LIGHT['text']}; font-size: 12px;
+            }}
+        """)
+        self.custom_separator_input.hide()
+        sep_row_layout.addWidget(self.custom_separator_input)
+
+        sep_row_layout.addStretch()
+        sep_layout.addWidget(sep_row)
+
+        # WI-052: Non-HL7 preserve option
+        self.preserve_non_hl7_cb = QCheckBox("Preserve non-HL7 lines in export")
+        self.preserve_non_hl7_cb.setStyleSheet(self._cb_style)
+        self.preserve_non_hl7_cb.setToolTip(
+            "When enabled, non-HL7 lines (comments, blank lines, etc.)\n"
+            "are kept at their original position in the exported output."
+        )
+        sep_layout.addWidget(self.preserve_non_hl7_cb)
+
+        sep_desc = QLabel(
+            "Controls how multiple HL7 messages are separated in the output "
+            "and whether non-HL7 content is preserved."
+        )
+        sep_desc.setWordWrap(True)
+        sep_desc.setStyleSheet(
+            f"color: {COLORS_LIGHT['text_muted']}; font-size: 11px; border: none;"
+        )
+        sep_layout.addWidget(sep_desc)
+        outer.addWidget(sep_card)
+
         # --- WI-023: Length strategy card ---
         len_card = QFrame()
         len_card.setStyleSheet(
@@ -195,9 +302,7 @@ class SettingsScreen(QWidget):
         len_layout.addWidget(len_title)
 
         self.length_preserve_cb = QCheckBox("Preserve original value length")
-        self.length_preserve_cb.setStyleSheet(
-            f"color: {COLORS_LIGHT['text']}; font-size: 12px; border: none;"
-        )
+        self.length_preserve_cb.setStyleSheet(self._cb_style)
         self.length_preserve_cb.setToolTip(
             "When enabled, the mask character is repeated to match the\n"
             "length of each original value. e.g. 'Müller' → '******'"
@@ -235,8 +340,7 @@ class SettingsScreen(QWidget):
         pseudo_layout.addWidget(pseudo_title)
 
         self.consistent_cb = QCheckBox("Same value → same pseudonym")
-        self.consistent_cb.setStyleSheet(
-            f"color: {COLORS_LIGHT['text']}; font-size: 12px; border: none;"
+        self.consistent_cb.setStyleSheet(self._cb_style
         )
         self.consistent_cb.setToolTip(
             "When enabled, identical original values receive the same\n"
@@ -287,9 +391,7 @@ class SettingsScreen(QWidget):
         # PII field definitions toggle
         self.pii_fields_cb = QCheckBox("PII field definitions (PID, NK1, PV1, IN1, GT1, ...)")
         self.pii_fields_cb.setChecked(True)
-        self.pii_fields_cb.setStyleSheet(
-            f"color: {COLORS_LIGHT['text']}; font-size: 12px; font-weight: 600; border: none;"
-        )
+        self.pii_fields_cb.setStyleSheet(self._cb_style)
         self.pii_fields_cb.setToolTip(
             "Auto-select known PII fields by segment and field position\n"
             "(e.g. PID.5 Patient Name, NK1.2 Name, NK1.5 Phone, ...)."
@@ -308,9 +410,7 @@ class SettingsScreen(QWidget):
         for pat in self.pattern_registry.default_patterns:
             cb = QCheckBox(f"{pat.name}  ({pat.pattern})")
             cb.setChecked(pat.enabled)
-            cb.setStyleSheet(
-                f"color: {COLORS_LIGHT['text']}; font-size: 11px; border: none;"
-            )
+            cb.setStyleSheet(self._cb_style)
             cb.setFont(QFont("Cascadia Code", 9))
             cb.toggled.connect(lambda checked, p=pat: setattr(p, 'enabled', checked))
             regex_layout.addWidget(cb)
@@ -643,9 +743,7 @@ class SettingsScreen(QWidget):
             cb = QCheckBox(f"{pat.name}  ({pat.pattern})")
             cb.setChecked(pat.enabled)
             cb.setFont(QFont("Cascadia Code", 9))
-            cb.setStyleSheet(
-                f"color: {COLORS_LIGHT['accent']}; font-size: 11px; border: none;"
-            )
+            cb.setStyleSheet(self._cb_style)
             cb.toggled.connect(lambda checked, p=pat: setattr(p, 'enabled', checked))
             row_layout.addWidget(cb)
 
@@ -691,6 +789,10 @@ class SettingsScreen(QWidget):
         from src.engine.llm_client import DEFAULT_PROMPT
         self.llm_prompt_edit.setPlainText(DEFAULT_PROMPT)
         self.llm_config = LLMConfig()
+        # Reset export options
+        self.separator_combo.setCurrentIndex(0)
+        self.custom_separator_input.clear()
+        self.preserve_non_hl7_cb.setChecked(False)
 
     def _export_config(self):
         """WI-045: Export config to user-chosen JSON file."""
@@ -760,6 +862,26 @@ class SettingsScreen(QWidget):
         """WI-024: Whether to use consistent pseudonymization."""
         return self.consistent_cb.isChecked()
 
+    def _on_separator_changed(self, index: int):
+        """Show/hide custom input based on combo selection."""
+        self.custom_separator_input.setVisible(index == 3)
+
+    def get_message_separator(self) -> str:
+        """WI-050: Return the configured message separator string."""
+        idx = self.separator_combo.currentIndex()
+        if idx == 0:
+            return "\n\n"
+        elif idx == 1:
+            return "\r\n"
+        elif idx == 2:
+            return "\n"
+        else:  # Custom
+            return self.custom_separator_input.text() or "\n\n"
+
+    def get_preserve_non_hl7(self) -> bool:
+        """WI-052: Whether to preserve non-HL7 lines in export."""
+        return self.preserve_non_hl7_cb.isChecked()
+
     def get_pii_fields_enabled(self) -> bool:
         """Whether PII field definitions are active for auto-detection."""
         return self.pii_fields_cb.isChecked()
@@ -784,10 +906,22 @@ class SettingsScreen(QWidget):
             self.llm_model_input.setText(self.llm_config.model_name)
             self.llm_apikey_input.setText(self.llm_config.api_key)
             self.llm_prompt_edit.setPlainText(self.llm_config.prompt_template)
+        # WI-050/052: Export settings
+        self.separator_combo.setCurrentIndex(cfg.get("separator_index", 0))
+        self.custom_separator_input.setText(cfg.get("custom_separator", ""))
+        self.preserve_non_hl7_cb.setChecked(cfg.get("preserve_non_hl7", False))
 
     def refresh_theme(self):
         """WI-040: Re-apply all inline stylesheets with current theme colors."""
         c = theme_manager.current_colors()
+
+        # Dialog background
+        self.setStyleSheet(f"QDialog {{ background: {c['bg']}; border: none; }}")
+        pal = self.palette()
+        pal.setColor(QPalette.ColorRole.Window, QColor(c['bg']))
+        self.setPalette(pal)
+        self._scroll.setStyleSheet(f"QScrollArea {{ border: none; background: {c['bg']}; }}")
+        self._scroll_content.setStyleSheet(f"background: {c['bg']};")
 
         # Cards (QFrame children)
         for frame in self.findChildren(QFrame):
@@ -825,9 +959,9 @@ class SettingsScreen(QWidget):
                 QLineEdit:focus {{ border-color: {c['accent']}; }}
             """)
 
-        # QCheckBox
+        # QCheckBox — only set text color, keep native indicator
         for cb in self.findChildren(QCheckBox):
-            cb.setStyleSheet(f"color: {c['text']}; font-size: 12px; border: none;")
+            cb.setStyleSheet(f"QCheckBox {{ color: {c['text']}; font-size: 12px; }}" + TOOLTIP_CSS)
 
         # QComboBox
         for combo in self.findChildren(QComboBox):
@@ -875,6 +1009,12 @@ class SettingsScreen(QWidget):
         for sa in self.findChildren(QScrollArea):
             sa.setStyleSheet(f"QScrollArea {{ border: none; background: {c['bg']}; }}")
 
+    def closeEvent(self, event):
+        """Auto-save on close and notify listeners."""
+        self.save_to_config()
+        self.settings_closed.emit()
+        super().closeEvent(event)
+
     def save_to_config(self):
         """WI-022: Save current settings to config file."""
         self._sync_llm_config()
@@ -885,4 +1025,11 @@ class SettingsScreen(QWidget):
             "pii_fields_enabled": self.pii_fields_cb.isChecked(),
             "custom_regex_patterns": self.pattern_registry.to_dict_list(),
             "llm": self.llm_config.to_dict(),
+            "separator_index": self.separator_combo.currentIndex(),
+            "custom_separator": self.custom_separator_input.text(),
+            "preserve_non_hl7": self.preserve_non_hl7_cb.isChecked(),
         })
+
+
+# Backwards-compat alias
+SettingsScreen = SettingsDialog
