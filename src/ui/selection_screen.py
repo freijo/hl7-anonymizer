@@ -55,6 +55,25 @@ STATE_AUTO = "auto_detected"
 STATE_MANUAL = "manually_selected"
 STATE_LLM = "llm_suggestion"
 
+# WI-058: Pagination
+PAGE_SIZE = 50  # messages per page
+
+
+class _FieldInfo:
+    """Lightweight field data for all messages — no Qt dependency."""
+    __slots__ = ('msg_index', 'segment_name', 'field_index', 'path', 'value_text', 'state')
+
+    def __init__(self, msg_index: int, segment_name: str, field_index: int, path: str, value_text: str):
+        self.msg_index = msg_index
+        self.segment_name = segment_name
+        self.field_index = field_index
+        self.path = path
+        self.value_text = value_text
+        self.state: str = STATE_NEUTRAL
+
+    def is_selected(self) -> bool:
+        return self.state in (STATE_AUTO, STATE_MANUAL, STATE_LLM)
+
 # WI-047: Accessibility — symbols alongside colors for colorblind users
 STATE_SYMBOLS = {
     STATE_AUTO: "\u25C9 ",      # ◉ auto-detected
@@ -340,12 +359,18 @@ class SelectionScreen(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._parse_result: ParseResult | None = None
-        self._all_value_widgets: list[ValueWidget] = []
+        self._all_value_widgets: list[ValueWidget] = []  # widgets on current page only
         self._segment_lines: list[SegmentLineWidget] = []
         self._last_clicked_widget: ValueWidget | None = None  # WI-046: for range selection
         self._sidebar_cards: list[QFrame] = []  # for theme refresh
-        self._undo_stack: list[dict[ValueWidget, str]] = []  # WI-044: undo history
-        self._redo_stack: list[dict[ValueWidget, str]] = []  # WI-044: redo history
+        self._undo_stack: list[dict[str, str]] = []  # WI-044: {(msg_idx,path)->state}
+        self._redo_stack: list[dict[str, str]] = []
+        # WI-058: Data model for ALL fields + pagination
+        self._all_fields: list[_FieldInfo] = []
+        self._field_index: dict[tuple[int, str], _FieldInfo] = {}  # (msg_idx, path) -> info
+        self._path_groups: dict[str, list[_FieldInfo]] = {}  # path -> fields across msgs
+        self._current_page: int = 0
+        self._total_pages: int = 1
         self._build_ui()
 
     def _build_ui(self):
@@ -568,6 +593,44 @@ class SelectionScreen(QWidget):
         self.scroll_area.setWidget(self.hl7_container)
 
         left_layout.addWidget(self.scroll_area, 1)
+
+        # WI-058: Pagination bar
+        self.page_bar = QWidget()
+        self.page_bar.setStyleSheet("background: none;")
+        page_layout = QHBoxLayout(self.page_bar)
+        page_layout.setContentsMargins(0, 4, 0, 0)
+        page_layout.setSpacing(8)
+
+        self.page_prev_btn = QPushButton("\u25C0 Prev")
+        self.page_prev_btn.setFixedHeight(26)
+        self.page_prev_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.page_prev_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {COLORS_LIGHT['accent_light']}; color: {COLORS_LIGHT['accent']};
+                border: 1px solid {COLORS_LIGHT['border']}; border-radius: 3px;
+                font-size: 11px; font-weight: 600; padding: 0 10px;
+            }}
+            QPushButton:hover {{ background: {COLORS_LIGHT['accent']}; color: white; }}
+            QPushButton:disabled {{ background: {COLORS_LIGHT['bg']}; color: {COLORS_LIGHT['text_muted']}; }}
+        """)
+        self.page_prev_btn.clicked.connect(self._page_prev)
+        page_layout.addWidget(self.page_prev_btn)
+
+        self.page_label = QLabel("Page 1 / 1")
+        self.page_label.setStyleSheet(f"color: {COLORS_LIGHT['text_muted']}; font-size: 11px; font-weight: 600;")
+        page_layout.addWidget(self.page_label)
+
+        self.page_next_btn = QPushButton("Next \u25B6")
+        self.page_next_btn.setFixedHeight(26)
+        self.page_next_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.page_next_btn.setStyleSheet(self.page_prev_btn.styleSheet())
+        self.page_next_btn.clicked.connect(self._page_next)
+        page_layout.addWidget(self.page_next_btn)
+
+        page_layout.addStretch()
+        self.page_bar.setVisible(False)
+        left_layout.addWidget(self.page_bar)
+
         content_layout.addWidget(left_column, 3)
 
         # RIGHT: Sidebar
@@ -762,10 +825,16 @@ class SelectionScreen(QWidget):
         """Propagate source widget's state to matching widgets in other messages."""
         if not self.sync_checkbox.isChecked():
             return
+        # Update rendered widgets on current page
         siblings = self._path_index.get(source.path, [])
         for vw in siblings:
             if vw is not source:
                 vw.set_state(source.state)
+                self._update_field_model(vw)
+        # WI-058: Also update data model for non-rendered messages
+        for fi in self._path_groups.get(source.path, []):
+            if fi.msg_index != source.msg_index:
+                fi.state = source.state
 
     def _sync_segment_to_others(self, segment_line: SegmentLineWidget):
         """Propagate a segment-level toggle to matching segments in other messages."""
@@ -779,17 +848,86 @@ class SelectionScreen(QWidget):
         self._parse_result = result
         self._all_value_widgets.clear()
         self._segment_lines.clear()
-        self._render()
-        self._build_path_index()
-        self._build_segment_buttons()
+        self._undo_stack.clear()
+        self._redo_stack.clear()
+
+        # WI-058: Build lightweight data model for ALL fields
+        self._all_fields.clear()
+        self._field_index.clear()
+        self._path_groups.clear()
+        if result.is_valid_hl7:
+            self._build_field_data(result)
+
+        # Auto-preselection on data model (no widgets needed)
         if result.is_valid_hl7:
             self._apply_auto_preselection()
+
+        # Pagination setup
+        msg_count = len(result.messages) if result.is_valid_hl7 else 0
+        self._total_pages = max(1, (msg_count + PAGE_SIZE - 1) // PAGE_SIZE)
+        self._current_page = 0
+        self.page_bar.setVisible(self._total_pages > 1)
+        self._update_page_controls()
+
+        # Render first page
+        self._render_page()
+        self._build_path_index()
+        self._build_segment_buttons()
         self._update_counter()
         self._update_sync_status()
 
-    def _render(self):
-        """Render the HL7 inline view with clickable fields."""
+    def _build_field_data(self, result: ParseResult):
+        """WI-058: Build lightweight data model for ALL fields without creating widgets."""
+        for msg_idx, msg in enumerate(result.messages):
+            for segment in msg.segments:
+                for field in segment.fields:
+                    if field.is_empty:
+                        continue
+                    is_msh_special = field.segment_name == "MSH" and field.field_index in (1, 2)
+                    if is_msh_special:
+                        fi = _FieldInfo(msg_idx, field.segment_name, field.field_index,
+                                        field.path, field.raw_value)
+                        self._all_fields.append(fi)
+                        self._field_index[(msg_idx, field.path)] = fi
+                        self._path_groups.setdefault(field.path, []).append(fi)
+                        continue
+                    tokens = tokenize_field_value(field.raw_value, msg.encoding_chars)
+                    has_reps = any(t[1] == "repetition_sep" for t in tokens)
+                    has_comps = any(t[1] == "component_sep" for t in tokens)
+                    has_subs = any(t[1] == "subcomponent_sep" for t in tokens)
+                    is_simple = not has_reps and not has_comps and not has_subs
+                    rep, comp, sub = 1, 1, 1
+                    for text, token_type in tokens:
+                        if token_type == "repetition_sep":
+                            rep += 1; comp = 1; sub = 1
+                        elif token_type == "component_sep":
+                            comp += 1; sub = 1
+                        elif token_type == "subcomponent_sep":
+                            sub += 1
+                        else:
+                            if text == "":
+                                continue
+                            if is_simple:
+                                path = field.path
+                            else:
+                                path = f"{field.segment_name}.{field.field_index}"
+                                if has_reps:
+                                    path += f"({rep})"
+                                if has_comps or has_subs:
+                                    path += f".{comp}"
+                                if has_subs:
+                                    path += f".{sub}"
+                            fi = _FieldInfo(msg_idx, field.segment_name, field.field_index,
+                                            path, text)
+                            self._all_fields.append(fi)
+                            self._field_index[(msg_idx, path)] = fi
+                            self._path_groups.setdefault(path, []).append(fi)
+
+    def _render_page(self):
+        """WI-058: Render only the current page of messages as widgets."""
         # Clear existing content
+        self._all_value_widgets.clear()
+        self._segment_lines.clear()
         while self.hl7_layout.count():
             item = self.hl7_layout.takeAt(0)
             if item.widget():
@@ -815,15 +953,20 @@ class SelectionScreen(QWidget):
             self._update_parse_status()
             return
 
-        # Render each message
-        for msg_idx, msg in enumerate(r.messages):
-            if msg_idx > 0:
+        # WI-058: Only render messages for the current page
+        start = self._current_page * PAGE_SIZE
+        end = min(start + PAGE_SIZE, len(r.messages))
+
+        for msg_idx in range(start, end):
+            msg = r.messages[msg_idx]
+            if msg_idx > start:
                 sep = QFrame()
                 sep.setFrameShape(QFrame.Shape.HLine)
                 sep.setStyleSheet(f"color: {COLORS_LIGHT['border']}; margin: 8px 0;")
                 self.hl7_layout.addWidget(sep)
 
-                # Show non-HL7 lines between messages
+            # Show non-HL7 lines between messages (only on first page)
+            if msg_idx > 0 and self._current_page == 0:
                 for ln, content in r.non_hl7_lines:
                     w = NonHL7LineWidget(ln, content)
                     self.hl7_layout.addWidget(w)
@@ -850,6 +993,11 @@ class SelectionScreen(QWidget):
                     vw.double_clicked.connect(lambda v=vw: self._select_same_value(v))
                     vw.context_menu_requested.connect(self._show_context_menu)
                     self._all_value_widgets.append(vw)
+                    # Restore state from data model
+                    key = (msg_idx, vw.path)
+                    fi = self._field_index.get(key)
+                    if fi and fi.state != STATE_NEUTRAL:
+                        vw.set_state(fi.state)
 
         # Show non-HL7 lines at the end for single-message case
         if len(r.messages) == 1 and r.non_hl7_lines:
@@ -860,13 +1008,51 @@ class SelectionScreen(QWidget):
         self.hl7_layout.addStretch()
         self._update_parse_status()
 
+    def _page_prev(self):
+        if self._current_page > 0:
+            self._save_page_to_model()
+            self._current_page -= 1
+            self._render_page()
+            self._build_path_index()
+            self._update_page_controls()
+            self.scroll_area.verticalScrollBar().setValue(0)
+
+    def _page_next(self):
+        if self._current_page < self._total_pages - 1:
+            self._save_page_to_model()
+            self._current_page += 1
+            self._render_page()
+            self._build_path_index()
+            self._update_page_controls()
+            self.scroll_area.verticalScrollBar().setValue(0)
+
+    def _update_page_controls(self):
+        self.page_label.setText(f"Page {self._current_page + 1} / {self._total_pages}")
+        self.page_prev_btn.setEnabled(self._current_page > 0)
+        self.page_next_btn.setEnabled(self._current_page < self._total_pages - 1)
+
+    def _save_page_to_model(self):
+        """Save current page widget states back to the data model."""
+        for vw in self._all_value_widgets:
+            key = (vw.msg_index, vw.path)
+            fi = self._field_index.get(key)
+            if fi:
+                fi.state = vw.state
+
     def _on_value_clicked(self, vw: ValueWidget):
         """Handle a single value widget click — snapshot, toggle, sync, update."""
         self._save_undo_snapshot()
         vw.toggle()
+        self._update_field_model(vw)
         self._last_clicked_widget = vw
         self._sync_to_others(vw)
         self._update_counter()
+
+    def _update_field_model(self, vw: ValueWidget):
+        """Keep data model in sync with widget state."""
+        fi = self._field_index.get((vw.msg_index, vw.path))
+        if fi:
+            fi.state = vw.state
 
     def _on_shift_click(self, vw: ValueWidget):
         """WI-046: Shift+click selects range from last clicked to this widget."""
@@ -886,6 +1072,7 @@ class SelectionScreen(QWidget):
         for i in range(lo, hi + 1):
             w = self._all_value_widgets[i]
             w.set_state(STATE_MANUAL)
+            self._update_field_model(w)
             if self.sync_checkbox.isChecked():
                 self._sync_to_others(w)
         self._last_clicked_widget = vw
@@ -894,6 +1081,9 @@ class SelectionScreen(QWidget):
     def _on_segment_toggled(self, segment_line: SegmentLineWidget):
         """Handle segment-level toggle — sync + update counter."""
         self._save_undo_snapshot()
+        # Update data model for toggled widgets
+        for vw in segment_line.value_widgets:
+            self._update_field_model(vw)
         self._sync_segment_to_others(segment_line)
         self._update_counter()
 
@@ -917,37 +1107,26 @@ class SelectionScreen(QWidget):
         self._pii_fields_enabled = enabled
 
     def _apply_auto_preselection(self):
-        """WI-004: Auto-preselect PII fields from Section 4.1 (Amber state).
-        WI-020: Also auto-select fields matching enabled regex patterns.
-        Both sources are independently toggleable via Settings.
-        Tooltip shows detection source so user can see why a field was selected.
-        """
+        """WI-004/WI-058: Auto-preselect on data model (no widgets needed)."""
         pii_enabled = getattr(self, '_pii_fields_enabled', True)
         registry = getattr(self, '_pattern_registry', None)
-        for vw in self._all_value_widgets:
+        for fi in self._all_fields:
             is_pii = (
                 pii_enabled
-                and (vw.field.segment_name, vw.field.field_index) in DEFAULT_PII_FIELDS
+                and (fi.segment_name, fi.field_index) in DEFAULT_PII_FIELDS
             )
             is_regex = (
                 registry is not None
-                and vw.value_text.strip()
-                and registry.matches_any(vw.value_text)
+                and fi.value_text.strip()
+                and registry.matches_any(fi.value_text)
             )
             if is_pii or is_regex:
-                vw.set_state(STATE_AUTO)
-                # Show detection source in tooltip
-                base = vw.toolTip()
-                sources = []
-                if is_pii:
-                    sources.append("PII field")
-                if is_regex:
-                    sources.append("Regex match")
-                vw.setToolTip(f"{base}\n[Auto: {', '.join(sources)}]")
+                fi.state = STATE_AUTO
 
     def _update_counter(self):
-        total = len(self._all_value_widgets)
-        selected = sum(1 for vw in self._all_value_widgets if vw.is_selected())
+        """WI-058: Count from data model (covers all pages)."""
+        total = len(self._all_fields)
+        selected = sum(1 for fi in self._all_fields if fi.is_selected())
         self.sel_count_label.setText(str(selected))
         word = "field" if total == 1 else "fields"
         self.sel_total_label.setText(f"of {total} {word} selected")
@@ -1027,13 +1206,19 @@ class SelectionScreen(QWidget):
 
     def _toggle_segment_by_name(self, seg_name: str):
         """Toggle all value widgets belonging to the given segment name."""
+        # Check rendered widgets for current state
         widgets = [vw for vw in self._all_value_widgets if vw.field.segment_name == seg_name]
         if not widgets:
             return
         any_neutral = any(not vw.is_selected() for vw in widgets)
         new_state = STATE_MANUAL if any_neutral else STATE_NEUTRAL
+        # WI-058: Update data model for ALL messages with this segment
+        for fi in self._all_fields:
+            if fi.segment_name == seg_name:
+                fi.state = new_state
         for vw in widgets:
             vw.set_state(new_state)
+            self._update_field_model(vw)
             if self.sync_checkbox.isChecked():
                 self._sync_to_others(vw)
         self._update_counter()
@@ -1041,10 +1226,15 @@ class SelectionScreen(QWidget):
     # --- WI-012: Value-based Selection ---
 
     def _select_same_value(self, source: ValueWidget):
-        """Double-click: select all widgets with the same value text across all messages."""
+        """Double-click: select all fields with the same value text across all messages."""
         val = source.value_text.lower()
         if not val.strip():
             return
+        # WI-058: Update data model for ALL messages
+        for fi in self._all_fields:
+            if fi.value_text.lower() == val:
+                fi.state = STATE_MANUAL
+        # Update rendered widgets
         for vw in self._all_value_widgets:
             if vw.value_text.lower() == val:
                 vw.set_state(STATE_MANUAL)
@@ -1108,6 +1298,7 @@ class SelectionScreen(QWidget):
         """WI-013: Select all fields matching the current search."""
         for vw in self._search_matches:
             vw.set_state(STATE_MANUAL)
+            self._update_field_model(vw)
             if self.sync_checkbox.isChecked():
                 self._sync_to_others(vw)
         self.search_input.clear()
@@ -1154,6 +1345,7 @@ class SelectionScreen(QWidget):
 
     def _ctx_toggle(self, vw: ValueWidget):
         vw.toggle()
+        self._update_field_model(vw)
         self._sync_to_others(vw)
         self._update_counter()
 
@@ -1212,21 +1404,16 @@ class SelectionScreen(QWidget):
             if reply != QMessageBox.StandardButton.Yes:
                 return
 
-        # F-LLM-15: Only analyse unselected fields
-        unselected = [
-            vw for vw in self._all_value_widgets
-            if not vw.is_selected() and vw.value_text.strip()
-        ]
-        if not unselected:
-            return
-
-        # Deduplicate by value text
+        # F-LLM-15: Only analyse unselected fields (from data model)
+        self._save_page_to_model()
         seen = set()
         unique_texts = []
-        for vw in unselected:
-            if vw.value_text not in seen:
-                seen.add(vw.value_text)
-                unique_texts.append(vw.value_text)
+        for fi in self._all_fields:
+            if not fi.is_selected() and fi.value_text.strip() and fi.value_text not in seen:
+                seen.add(fi.value_text)
+                unique_texts.append(fi.value_text)
+        if not unique_texts:
+            return
 
         self.llm_analyze_btn.setEnabled(False)
         self.llm_cancel_btn.show()
@@ -1270,14 +1457,19 @@ class SelectionScreen(QWidget):
         if not found_values:
             return
 
-        # Mark matching unselected widgets as LLM suggestions (purple)
+        # WI-058: Mark on data model + rendered widgets
         suggestion_count = 0
-        for vw in self._all_value_widgets:
-            if vw.is_selected():
+        for fi in self._all_fields:
+            if fi.is_selected():
                 continue
-            if vw.value_text in found_values:
-                vw.set_state(STATE_LLM)
+            if fi.value_text in found_values:
+                fi.state = STATE_LLM
                 suggestion_count += 1
+        # Sync to rendered widgets
+        for vw in self._all_value_widgets:
+            fi = self._field_index.get((vw.msg_index, vw.path))
+            if fi and fi.state == STATE_LLM:
+                vw.set_state(STATE_LLM)
 
         if suggestion_count > 0:
             self.llm_accept_btn.show()
@@ -1286,17 +1478,21 @@ class SelectionScreen(QWidget):
 
     def _accept_all_suggestions(self):
         """WI-034: Accept all LLM suggestions → manually selected."""
+        for fi in self._all_fields:
+            if fi.state == STATE_LLM:
+                fi.state = STATE_MANUAL
         for vw in self._all_value_widgets:
             if vw.state == STATE_LLM:
                 vw.set_state(STATE_MANUAL)
-                if self.sync_checkbox.isChecked():
-                    self._sync_to_others(vw)
         self.llm_accept_btn.hide()
         self.llm_dismiss_btn.hide()
         self._update_counter()
 
     def _dismiss_all_suggestions(self):
         """WI-034: Dismiss all LLM suggestions → neutral."""
+        for fi in self._all_fields:
+            if fi.state == STATE_LLM:
+                fi.state = STATE_NEUTRAL
         for vw in self._all_value_widgets:
             if vw.state == STATE_LLM:
                 vw.set_state(STATE_NEUTRAL)
@@ -1321,8 +1517,9 @@ class SelectionScreen(QWidget):
             name = self.profile_combo.currentText()
         if not name:
             return
-        # Store selected paths as profile data
-        selected_paths = [vw.path for vw in self._all_value_widgets if vw.is_selected()]
+        # WI-058: Store selected paths from data model
+        self._save_page_to_model()
+        selected_paths = list({fi.path for fi in self._all_fields if fi.is_selected()})
         cfg = load_config()
         profiles = cfg.get("profiles", {})
         profiles[name] = selected_paths
@@ -1346,11 +1543,13 @@ class SelectionScreen(QWidget):
         if not paths:
             return
         self._save_undo_snapshot()
+        # WI-058: Apply to data model + rendered widgets
+        for fi in self._all_fields:
+            fi.state = STATE_MANUAL if fi.path in paths else STATE_NEUTRAL
         for vw in self._all_value_widgets:
-            if vw.path in paths:
-                vw.set_state(STATE_MANUAL)
-            else:
-                vw.set_state(STATE_NEUTRAL)
+            fi = self._field_index.get((vw.msg_index, vw.path))
+            if fi:
+                vw.set_state(fi.state)
         self._update_counter()
 
     def _delete_profile(self):
@@ -1368,25 +1567,32 @@ class SelectionScreen(QWidget):
     # --- WI-044: Undo / Redo ---
 
     def _save_undo_snapshot(self):
-        """Capture current state of all widgets for undo."""
-        snapshot = {vw: vw.state for vw in self._all_value_widgets}
+        """WI-058: Capture state from data model for undo."""
+        self._save_page_to_model()
+        snapshot = {(fi.msg_index, fi.path): fi.state for fi in self._all_fields}
         self._undo_stack.append(snapshot)
         self._redo_stack.clear()
-        # Limit stack depth
         if len(self._undo_stack) > 50:
             self._undo_stack.pop(0)
 
     def _restore_snapshot(self, snapshot: dict):
-        """Restore widget states from a snapshot."""
-        for vw, state in snapshot.items():
-            vw.set_state(state)
+        """WI-058: Restore states to data model + current page widgets."""
+        for fi in self._all_fields:
+            key = (fi.msg_index, fi.path)
+            if key in snapshot:
+                fi.state = snapshot[key]
+        # Sync rendered widgets on current page
+        for vw in self._all_value_widgets:
+            fi = self._field_index.get((vw.msg_index, vw.path))
+            if fi:
+                vw.set_state(fi.state)
         self._update_counter()
 
     def _undo(self):
         if not self._undo_stack:
             return
-        # Save current state to redo
-        current = {vw: vw.state for vw in self._all_value_widgets}
+        self._save_page_to_model()
+        current = {(fi.msg_index, fi.path): fi.state for fi in self._all_fields}
         self._redo_stack.append(current)
         snapshot = self._undo_stack.pop()
         self._restore_snapshot(snapshot)
@@ -1394,8 +1600,8 @@ class SelectionScreen(QWidget):
     def _redo(self):
         if not self._redo_stack:
             return
-        # Save current state to undo
-        current = {vw: vw.state for vw in self._all_value_widgets}
+        self._save_page_to_model()
+        current = {(fi.msg_index, fi.path): fi.state for fi in self._all_fields}
         self._undo_stack.append(current)
         snapshot = self._redo_stack.pop()
         self._restore_snapshot(snapshot)
@@ -1592,12 +1798,28 @@ class SelectionScreen(QWidget):
             }}
         """)
 
+        # WI-058: Pagination bar
+        page_btn_style = f"""
+            QPushButton {{
+                background: {c['accent_light']}; color: {c['accent']};
+                border: 1px solid {c['border']}; border-radius: 3px;
+                font-size: 11px; font-weight: 600; padding: 0 10px;
+            }}
+            QPushButton:hover {{ background: {c['accent']}; color: white; }}
+            QPushButton:disabled {{ background: {c['bg']}; color: {c['text_muted']}; }}
+        """
+        self.page_prev_btn.setStyleSheet(page_btn_style)
+        self.page_next_btn.setStyleSheet(page_btn_style)
+        self.page_label.setStyleSheet(f"color: {c['text_muted']}; font-size: 11px; font-weight: 600;")
+
     def get_selections(self) -> list[tuple[int, str, int, str, str]]:
-        """Return list of (msg_index, segment_name, field_index, path, state) for selected values."""
+        """WI-058: Return selections from data model (covers all pages)."""
+        # Save current page widget states first
+        self._save_page_to_model()
         return [
-            (vw.msg_index, vw.field.segment_name, vw.field.field_index, vw.path, vw.state)
-            for vw in self._all_value_widgets
-            if vw.is_selected()
+            (fi.msg_index, fi.segment_name, fi.field_index, fi.path, fi.state)
+            for fi in self._all_fields
+            if fi.is_selected()
         ]
 
     def get_all_value_widgets(self) -> list[ValueWidget]:

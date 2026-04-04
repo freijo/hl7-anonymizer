@@ -59,3 +59,7 @@
 - [x] WI-054: Header-Buttons mit Segoe MDL2 Font-Icons (Zahnrad, Theme-Toggle)
 - [x] WI-055: Font-Konsistenz Input/Output (Cascadia Code 11 überall)
 - [x] WI-056: Settings-Dialog schwarzer Rand entfernt (QPalette + ScrollContent Background)
+
+## DONE (Tier 6 — Diff & Performance)
+- [x] WI-057: Diff-View Scroll-Sync + NoWrap (Zeilen nebeneinander, synchrones Scrollen)
+- [x] WI-058: Performance Pagination Screen 2 (50 Msg/Seite, Data Model für alle, kein Crash bei 6K+)

@@ -141,6 +141,7 @@ class OutputScreen(QWidget):
         self.original_edit = QTextEdit()
         self.original_edit.setFont(MONO_FONT)
         self.original_edit.setReadOnly(True)
+        self.original_edit.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
         self.original_edit.setPlaceholderText("Original HL7")
         self.original_edit.setStyleSheet(te_style)
         self.original_edit.hide()
@@ -150,12 +151,22 @@ class OutputScreen(QWidget):
         self.text_edit = QTextEdit()
         self.text_edit.setFont(MONO_FONT)
         self.text_edit.setReadOnly(True)
+        self.text_edit.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
         self.text_edit.setPlaceholderText(
             "Anonymized HL7 output will appear here.\n\n"
             "Select fields in Step 2, then navigate here to anonymize."
         )
         self.text_edit.setStyleSheet(te_style)
         self.splitter.addWidget(self.text_edit)
+
+        # WI-057: Sync vertical scrolling between diff panes
+        self._syncing_scroll = False
+        self.original_edit.verticalScrollBar().valueChanged.connect(
+            lambda v: self._sync_scroll(self.original_edit, self.text_edit)
+        )
+        self.text_edit.verticalScrollBar().valueChanged.connect(
+            lambda v: self._sync_scroll(self.text_edit, self.original_edit)
+        )
 
         outer.addWidget(self.splitter, 1)
 
@@ -182,6 +193,14 @@ class OutputScreen(QWidget):
         """WI-042: Store original text for diff view."""
         self._original_text = text
         self.original_edit.setPlainText(text)
+
+    def _sync_scroll(self, source: QTextEdit, target: QTextEdit):
+        """WI-057: Keep both diff panes scrolled to the same position."""
+        if self._syncing_scroll:
+            return
+        self._syncing_scroll = True
+        target.verticalScrollBar().setValue(source.verticalScrollBar().value())
+        self._syncing_scroll = False
 
     def _toggle_diff(self, checked: bool):
         """WI-042: Toggle diff view (side-by-side original vs anonymized)."""
