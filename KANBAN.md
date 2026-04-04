@@ -1,10 +1,20 @@
 # HL7 Anonymizer — Kanban Board
 
+**Methode:** GSD (Get Stuff Done) / Kanban | **WIP-Limit:** 2 | **Pull-Prinzip:** Nächstes Item aus höchstem offenen Tier
+
+## BACKLOG
+
+_(leer — alle Tiers abgeschlossen)_
+
 ## IN PROGRESS (WIP: 2)
+
+_(leer)_
 
 ## REVIEW
 
-## DONE
+_(leer)_
+
+## DONE (Tier 0 — MVP)
 - [x] WI-001: HL7 Parser (best-effort)
 - [x] WI-002: Input-Screen
 - [x] WI-003: Field Selection (Basis)
@@ -12,6 +22,8 @@
 - [x] WI-005: Anonymisierungs-Engine
 - [x] WI-006: Output-Screen
 - [x] WI-007: Maskenzeichen-Setting
+
+## DONE (Tier 1 — Usability)
 - [x] WI-011: Segment Quick-Select (Sidebar)
 - [x] WI-012: Value-based Selection
 - [x] WI-013: Search
@@ -20,6 +32,8 @@
 - [x] WI-016: 4-Farben-Schema (in WI-003)
 - [x] WI-017: Export .txt
 - [x] WI-019: Non-HL7 Inline-Warnung (in WI-003)
+
+## DONE (Tier 2 — Regex, Config & Interaktion)
 - [x] WI-020: Default Regex Patterns
 - [x] WI-021: Custom Regex Editor
 - [x] WI-022: Config File
@@ -49,18 +63,19 @@
 - [x] WI-046: Bereichsmarkierung
 - [x] WI-047: Accessibility
 
-## DONE (Tier 5 — Export & Settings Refactor)
-- [x] WI-051: Globaler Settings-Dialog (Zahnrad-Button, Settings aus Step 3 in Dialog verschieben, 3-Step-Navigation)
-- [x] WI-050: Export-Trenner zwischen HL7-Meldungen (konfigurierbar, Default: HL7-Standard-Zeilenumbruch)
-- [x] WI-052: Non-HL7-Elemente im Export beibehalten (optional, Position erhalten, in Settings konfigurierbar)
-
-## DONE (Tier 5 — UI Polish)
-- [x] WI-053: Tooltips einheitlich in Light & Dark Mode (per-Widget QToolTip CSS)
-- [x] WI-054: Header-Buttons mit Segoe MDL2 Font-Icons (Zahnrad, Theme-Toggle)
-- [x] WI-055: Font-Konsistenz Input/Output (Cascadia Code 11 überall)
-- [x] WI-056: Settings-Dialog schwarzer Rand entfernt (QPalette + ScrollContent Background)
+## DONE (Tier 5 — Export, Settings & UI Polish)
+- [x] WI-050: Export-Trenner zwischen HL7-Meldungen (konfigurierbar)
+- [x] WI-051: Globaler Settings-Dialog (Zahnrad-Button, 3-Step-Navigation)
+- [x] WI-052: Non-HL7-Elemente im Export beibehalten (optional, Position erhalten)
+- [x] WI-053: Tooltips einheitlich in Light & Dark Mode
+- [x] WI-054: Header-Buttons mit Segoe MDL2 Font-Icons
+- [x] WI-055: Font-Konsistenz Input/Output (Cascadia Code 11pt)
+- [x] WI-056: Settings-Dialog schwarzer Rand entfernt
 
 ## DONE (Tier 6 — Diff & Performance)
-- [x] WI-057: Diff-View Scroll-Sync + NoWrap (Zeilen nebeneinander, synchrones Scrollen)
-- [x] WI-058: Performance Pagination Screen 2 (50 Msg/Seite, Data Model für alle, kein Crash bei 6K+)
-- [x] WI-059: Info-Button mit About-Dialog (v1.0, Buy me a Coffee) + Dokumentation aus Requirements
+- [x] WI-057: Diff-View Scroll-Sync + NoWrap
+- [x] WI-058: Performance Pagination Screen 2 (50 Msg/Seite)
+- [x] WI-059: Info-Button mit About-Dialog (v1.0, Buy me a Coffee)
+
+## Incidents (resolved)
+- [x] Non-HL7-Elemente nicht an Originalposition im Output — fix: HL7Message.start_line + sortierte Ausgabe
