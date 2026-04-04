@@ -957,6 +957,10 @@ class SelectionScreen(QWidget):
         start = self._current_page * PAGE_SIZE
         end = min(start + PAGE_SIZE, len(r.messages))
 
+        # Build sorted list of non-HL7 lines for correct interleaving
+        non_hl7_by_line = sorted(r.non_hl7_lines, key=lambda x: x[0]) if r.non_hl7_lines else []
+        non_hl7_idx = 0
+
         for msg_idx in range(start, end):
             msg = r.messages[msg_idx]
             if msg_idx > start:
@@ -965,11 +969,15 @@ class SelectionScreen(QWidget):
                 sep.setStyleSheet(f"color: {COLORS_LIGHT['border']}; margin: 8px 0;")
                 self.hl7_layout.addWidget(sep)
 
-            # Show non-HL7 lines between messages (only on first page)
-            if msg_idx > 0 and self._current_page == 0:
-                for ln, content in r.non_hl7_lines:
+            # Show non-HL7 lines that belong before this message
+            while non_hl7_idx < len(non_hl7_by_line):
+                ln, content = non_hl7_by_line[non_hl7_idx]
+                if ln < msg.start_line:
                     w = NonHL7LineWidget(ln, content)
                     self.hl7_layout.addWidget(w)
+                    non_hl7_idx += 1
+                else:
+                    break
 
             # Message header
             msg_header = QLabel(f"Message {msg_idx + 1} — {msg.message_type}")
@@ -999,11 +1007,12 @@ class SelectionScreen(QWidget):
                     if fi and fi.state != STATE_NEUTRAL:
                         vw.set_state(fi.state)
 
-        # Show non-HL7 lines at the end for single-message case
-        if len(r.messages) == 1 and r.non_hl7_lines:
-            for ln, content in r.non_hl7_lines:
-                w = NonHL7LineWidget(ln, content)
-                self.hl7_layout.addWidget(w)
+        # Show remaining non-HL7 lines after last message
+        while non_hl7_idx < len(non_hl7_by_line):
+            ln, content = non_hl7_by_line[non_hl7_idx]
+            w = NonHL7LineWidget(ln, content)
+            self.hl7_layout.addWidget(w)
+            non_hl7_idx += 1
 
         self.hl7_layout.addStretch()
         self._update_parse_status()
