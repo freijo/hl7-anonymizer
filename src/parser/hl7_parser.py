@@ -29,6 +29,7 @@ class HL7Message:
     encoding_chars: dict
     message_type: str
     raw_text: str
+    start_line: int = 1  # 1-based line number where this message starts
 
 
 @dataclass
@@ -246,6 +247,7 @@ def _parse_single_message(lines: list[str], global_line_offset: int) -> tuple[HL
         encoding_chars=encoding_chars,
         message_type=message_type,
         raw_text=raw_text,
+        start_line=global_line_offset,
     ), non_hl7
 
 

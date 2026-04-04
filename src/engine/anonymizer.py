@@ -60,14 +60,18 @@ def anonymize(
             msg_lines.append(line)
         message_blocks.append("\n".join(msg_lines))
 
-    # WI-052: Insert non-HL7 lines at original positions
+    # WI-052: Insert non-HL7 lines at their original positions
     if preserve_non_hl7 and parse_result.non_hl7_lines:
-        non_hl7_text = "\n".join(content for _, content in parse_result.non_hl7_lines)
-        # Place non-HL7 content between first and second message (or at end)
-        if len(message_blocks) > 1:
-            message_blocks.insert(1, non_hl7_text)
-        else:
-            message_blocks.append(non_hl7_text)
+        output_entries: list[tuple[int, str]] = []
+
+        for msg_idx, msg in enumerate(parse_result.messages):
+            output_entries.append((msg.start_line, message_blocks[msg_idx]))
+
+        for line_num, content in parse_result.non_hl7_lines:
+            output_entries.append((line_num, content))
+
+        output_entries.sort(key=lambda e: e[0])
+        return "\n".join(content for _, content in output_entries)
 
     return message_separator.join(message_blocks)
 
