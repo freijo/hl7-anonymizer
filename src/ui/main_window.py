@@ -1,13 +1,16 @@
 """Main window with 3-step navigation + settings dialog."""
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QFont, QPalette
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QPalette
 from PySide6.QtWidgets import (
     QApplication,
+    QDialog,
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMenu,
     QPushButton,
+    QScrollArea,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -158,20 +161,6 @@ class MainWindow(QMainWindow):
 
         h_layout.addStretch()
 
-        version = QLabel("v0.1")
-        version.setStyleSheet(
-            f"background: {COLORS_LIGHT['accent']}; color: white; "
-            f"padding: 4px 14px; border-radius: 4px; font-size: 11px; font-weight: 700; border: none;"
-        )
-        h_layout.addWidget(version)
-
-        header_btn_ss = (
-            f"QPushButton {{ background: none; border: 1px solid {COLORS_LIGHT['border']}; "
-            f"border-radius: 4px; font-size: 11px; font-weight: 600; "
-            f"color: {COLORS_LIGHT['text']}; padding: 4px 12px; }}"
-            f"QPushButton:hover {{ background: {COLORS_LIGHT['panel']}; }}"
-        )
-
         icon_btn_ss = (
             f"QPushButton {{ background: none; border: 1px solid {COLORS_LIGHT['border']}; "
             f"border-radius: 4px; font-family: 'Segoe MDL2 Assets'; font-size: 14px; "
@@ -198,6 +187,15 @@ class MainWindow(QMainWindow):
         self.theme_btn.clicked.connect(self._toggle_theme)
         h_layout.addWidget(self.theme_btn)
 
+        # WI-059: Info button (i icon from Segoe MDL2 Assets)
+        self.info_btn = QPushButton("\uE946")  # Info
+        self.info_btn.setFixedSize(36, 36)
+        self.info_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.info_btn.setToolTip("Info")
+        self.info_btn.setStyleSheet(icon_btn_ss)
+        self.info_btn.clicked.connect(self._show_info_menu)
+        h_layout.addWidget(self.info_btn)
+
         return header
 
     def _open_settings(self):
@@ -205,6 +203,153 @@ class MainWindow(QMainWindow):
         self.settings_dialog.show()
         self.settings_dialog.raise_()
         self.settings_dialog.activateWindow()
+
+    def _show_info_menu(self):
+        """WI-059: Show info popup menu with About and Documentation."""
+        c = theme_manager.current_colors()
+        menu = QMenu(self)
+        menu.setStyleSheet(f"""
+            QMenu {{
+                background: {c['surface']}; border: 1px solid {c['border']};
+                padding: 4px; font-size: 12px;
+            }}
+            QMenu::item {{ padding: 6px 24px; color: {c['text']}; }}
+            QMenu::item:selected {{ background: {c['accent_light']}; color: {c['accent']}; }}
+        """)
+        act_about = menu.addAction("About")
+        act_about.triggered.connect(self._show_about)
+        act_docs = menu.addAction("Documentation")
+        act_docs.triggered.connect(self._show_documentation)
+        menu.exec(self.info_btn.mapToGlobal(self.info_btn.rect().bottomLeft()))
+
+    def _show_about(self):
+        """WI-059: About dialog with version and support link."""
+        c = theme_manager.current_colors()
+        dlg = QDialog(self)
+        dlg.setWindowTitle("About HL7 Anonymizer")
+        dlg.setFixedSize(400, 260)
+        dlg.setStyleSheet(f"QDialog {{ background: {c['bg']}; }}")
+
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(28, 24, 28, 24)
+        layout.setSpacing(12)
+
+        title = QLabel("HL7 Anonymizer")
+        title.setStyleSheet(f"color: {c['text']}; font-size: 18px; font-weight: 700;")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title)
+
+        version = QLabel("Version 1.0")
+        version.setStyleSheet(f"color: {c['accent']}; font-size: 14px; font-weight: 600;")
+        version.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(version)
+
+        desc = QLabel("Anonymize personal data in HL7 v2.x messages.\nLocal, offline, no data leaves your machine.")
+        desc.setWordWrap(True)
+        desc.setStyleSheet(f"color: {c['text_muted']}; font-size: 12px;")
+        desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(desc)
+
+        layout.addSpacing(8)
+
+        coffee_btn = QPushButton("\u2615  Buy me a Coffee")
+        coffee_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        coffee_btn.setFixedHeight(36)
+        coffee_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: #ff5e5b; color: white; border: none; border-radius: 4px;
+                font-size: 13px; font-weight: 700; padding: 0 24px;
+            }}
+            QPushButton:hover {{ background: #e04e4b; }}
+        """)
+        coffee_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl("https://ko-fi.com/johannesfrei"))
+        )
+        layout.addWidget(coffee_btn, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        layout.addStretch()
+        dlg.exec()
+
+    def _show_documentation(self):
+        """WI-059: Documentation dialog extracted from requirements."""
+        c = theme_manager.current_colors()
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Documentation — HL7 Anonymizer")
+        dlg.resize(700, 550)
+        dlg.setStyleSheet(f"QDialog {{ background: {c['bg']}; }}")
+
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet(f"QScrollArea {{ border: none; background: {c['bg']}; }}")
+
+        content = QWidget()
+        content.setStyleSheet(f"background: {c['bg']};")
+        inner = QVBoxLayout(content)
+        inner.setContentsMargins(28, 20, 28, 20)
+        inner.setSpacing(16)
+
+        docs = [
+            ("Overview",
+             "Local Python desktop application for anonymizing personal data in HL7 v2.x messages. "
+             "No network traffic — all processing happens on your machine."),
+            ("Workflow",
+             "<b>Step 1 — Input:</b> Paste HL7 messages or drag & drop .hl7/.txt files.<br>"
+             "<b>Step 2 — Select Fields:</b> Click fields to select/deselect. "
+             "Auto-detection highlights known PII fields (amber). Manual selection in red. "
+             "LLM suggestions in purple. Segment quick-select, search, and value-based selection available.<br>"
+             "<b>Step 3 — Output:</b> View anonymized result, copy to clipboard, or export as .txt."),
+            ("Auto-Detection",
+             "PII fields from the HL7 specification are auto-selected:<br>"
+             "<b>PID:</b> Name, DOB, Address, Phone, SSN, etc.<br>"
+             "<b>NK1:</b> Next of Kin name, address, phone<br>"
+             "<b>PV1:</b> Attending/Referring/Admitting doctors<br>"
+             "<b>IN1:</b> Insurance info, insured name/address<br>"
+             "<b>GT1:</b> Guarantor name, address, phone<br>"
+             "Regex patterns also detect phone numbers, emails, dates, and Swiss AHV numbers."),
+            ("Settings",
+             "<b>Mask pattern:</b> Characters used to replace selected values (default: ***).<br>"
+             "<b>Length preserve:</b> Repeat mask to match original length.<br>"
+             "<b>Consistent pseudonymization:</b> Same value → same replacement across messages.<br>"
+             "<b>Message separator:</b> Separator between messages in export.<br>"
+             "<b>Regex patterns:</b> Built-in + custom patterns for auto-detection."),
+            ("LLM Analysis",
+             "Optional AI-based detection of personal data in free-text fields.<br>"
+             "<b>Local API:</b> Connect to Ollama or any OpenAI-compatible endpoint.<br>"
+             "Data stays local when using localhost. Remote endpoints show a warning.<br>"
+             "Results appear as purple suggestions — always confirm before accepting."),
+            ("Keyboard Shortcuts",
+             "<b>Space:</b> Toggle field selection<br>"
+             "<b>Arrow keys:</b> Navigate between fields<br>"
+             "<b>Ctrl+Z:</b> Undo<br>"
+             "<b>Ctrl+Y:</b> Redo<br>"
+             "<b>Shift+Click:</b> Range selection"),
+            ("Critical Free-Text Fields",
+             "<b>OBX-5</b> (Observation Value) and <b>NTE-3</b> (Comment) may contain "
+             "arbitrary text including patient names in clinical reports. "
+             "Use regex patterns and LLM analysis to detect embedded PII."),
+        ]
+
+        for title_text, body_text in docs:
+            section_title = QLabel(title_text)
+            section_title.setStyleSheet(
+                f"color: {c['text']}; font-size: 14px; font-weight: 700; "
+                f"border-bottom: 1px solid {c['border']}; padding-bottom: 4px;"
+            )
+            inner.addWidget(section_title)
+
+            body = QLabel(body_text)
+            body.setWordWrap(True)
+            body.setOpenExternalLinks(True)
+            body.setStyleSheet(f"color: {c['text_muted']}; font-size: 12px; line-height: 1.4;")
+            inner.addWidget(body)
+
+        inner.addStretch()
+        scroll.setWidget(content)
+        layout.addWidget(scroll)
+        dlg.exec()
 
     def _on_settings_closed(self):
         """Refresh selection screen after settings dialog closes."""
@@ -266,6 +411,7 @@ class MainWindow(QMainWindow):
         )
         self.theme_btn.setStyleSheet(header_btn_style)
         self.settings_btn.setStyleSheet(header_btn_style)
+        self.info_btn.setStyleSheet(header_btn_style)
 
         # Update step buttons
         for i, btn in enumerate(self.step_buttons):

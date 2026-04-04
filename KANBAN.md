@@ -63,3 +63,4 @@
 ## DONE (Tier 6 — Diff & Performance)
 - [x] WI-057: Diff-View Scroll-Sync + NoWrap (Zeilen nebeneinander, synchrones Scrollen)
 - [x] WI-058: Performance Pagination Screen 2 (50 Msg/Seite, Data Model für alle, kein Crash bei 6K+)
+- [x] WI-059: Info-Button mit About-Dialog (v1.0, Buy me a Coffee) + Dokumentation aus Requirements
